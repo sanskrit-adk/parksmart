@@ -40,7 +40,7 @@ async function main() {
     return "valid";
   });
   await check("Supabase database", true, [e.SUPABASE_DB_URL], async () => {
-    const c = new pg.Client({ connectionString: e.SUPABASE_DB_URL, ssl: { rejectUnauthorized: false } });
+    const c = new pg.Client({ connectionString: e.SUPABASE_DB_URL, ssl: /localhost|127.0.0.1/.test(e.SUPABASE_DB_URL!) ? false : { rejectUnauthorized: false } });
     await c.connect();
     const { rows } = await c.query(`select to_regclass('public.parking_locations') is not null as migrated,
       (select count(*) from pg_class where relname = 'parking_locations') as t`);
@@ -76,7 +76,7 @@ async function main() {
   for (const r of results) console.log(`${r.ok === true ? "✔" : r.ok === false ? "✘" : "–"} ${r.name.padEnd(24)} ${r.detail}`);
   const failed = results.filter((r) => r.ok === false);
   console.log(failed.length ? `\n${failed.length} problem(s) to fix.` : "\nAll required services are configured.");
-  process.exit(failed.length ? 1 : 0);
+  process.exitCode = failed.length ? 1 : 0;
 }
 
 main();

@@ -22,6 +22,30 @@ A mobile-first, installable (PWA) web app to find, predict, book and pay for par
 
 ---
 
+## Run locally with no accounts (Windows)
+
+Everything runs on your machine: the real Supabase stack inside WSL Ubuntu, free OpenStreetMap maps and geocoding, and a clearly-labelled **simulated checkout** instead of Stripe.
+
+**One-time setup** (already done on the original dev machine):
+
+1. In WSL Ubuntu, as root: `apt-get install -y docker.io && systemctl enable --now docker`. Then install the Supabase CLI `.deb` from github.com/supabase/cli/releases.
+2. `copy .env.example .env.local`. Set the four Supabase values to the local defaults that `supabase start` prints (URL `http://127.0.0.1:54321`, the publishable and secret keys, and DB URL `postgresql://postgres:postgres@127.0.0.1:54322/postgres`), and set `ALLOW_SIMULATED_PAYMENTS=true`.
+3. Start once, then `npm run seed -- --region sf` to load real SF parking data and the test accounts.
+
+**Every time:** double-click **`start-parksmart.cmd`**. It starts the database, waits for it, runs the site and opens http://localhost:3000. Keep the minimised "ParkSmart database" window open while you use the site.
+
+What changes without accounts:
+
+| Without | You get |
+|---|---|
+| Mapbox token | MapLibre GL + OpenFreeMap tiles, Photon geocoding (OpenStreetMap) |
+| Stripe key | Simulated checkout page (dev server, or `ALLOW_SIMULATED_PAYMENTS=true`). No money moves. Never enable on a public site. |
+| OpenAI key | Rule-based search parsing, pricing and insights; plate check-in by typing; lot-photo detection needs the YOLO service or a key |
+
+Add any real key to `.env.local` later and that feature switches over automatically.
+
+Useful checks: `npm run check:env` (tests each key), `npx tsx scripts/realtime-check.ts` (books a space and confirms the live update arrives).
+
 ## Quick start
 
 Prerequisites: Node.js 20.9+, a free [Supabase](https://supabase.com) project, a [Mapbox](https://mapbox.com) token, a [Stripe](https://stripe.com) account (test mode) and an [OpenAI](https://platform.openai.com) API key. Docker is optional (for the CV service).

@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PROTECTED = ["/bookings", "/profile", "/host", "/admin", "/book", "/check-in"];
+const PROTECTED = ["/bookings", "/profile", "/host", "/admin", "/book", "/check-in", "/checkout"];
 
 /** Refreshes the Supabase session cookie and gates signed-in-only pages. */
 export async function proxy(request: NextRequest) {

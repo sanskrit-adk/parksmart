@@ -17,7 +17,7 @@ async function main() {
   if (!url || url.includes("YOUR-PASSWORD")) {
     throw new Error("Set SUPABASE_DB_URL in .env.local (Supabase → Project Settings → Database → Connection string → URI)");
   }
-  const client = new pg.Client({ connectionString: url, ssl: { rejectUnauthorized: false } });
+  const client = new pg.Client({ connectionString: url, ssl: /localhost|127.0.0.1/.test(url) ? false : { rejectUnauthorized: false } });
   await client.connect();
   await client.query(`create table if not exists public._parksmart_migrations (name text primary key, applied_at timestamptz not null default now())`);
   const { rows } = await client.query<{ name: string }>("select name from public._parksmart_migrations");

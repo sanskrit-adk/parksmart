@@ -2,6 +2,7 @@ import "server-only";
 
 import type Stripe from "stripe";
 import { ApiError } from "@/lib/api";
+import { simulatedPayments } from "@/lib/env";
 import { dateTime, duration } from "@/lib/format";
 import { priceBreakdown, refundFor } from "@/lib/pricing";
 import { getStripe, toCents } from "@/lib/stripe";
@@ -16,8 +17,22 @@ function requireStripe() {
   return stripe;
 }
 
+/** Payment ids starting with sim_ come from the local simulated checkout. */
+const isSimulated = (paymentId: string | null) => Boolean(paymentId?.startsWith("sim_"));
+
+async function refundPayment(paymentId: string | null, idempotencyKey: string, amount?: number) {
+  if (!paymentId || isSimulated(paymentId)) return;
+  await requireStripe().refunds.create({ payment_intent: paymentId, ...(amount !== undefined ? { amount: toCents(amount) } : {}) }, { idempotencyKey });
+}
+
 /** Stripe Checkout for a freshly created hold. */
-export async function createBookingCheckout(booking: Booking, location: Pick<ParkingLocation, "name" | "address">, origin: string, email?: string) {
+export async function createBookingCheckout(
+  booking: Booking,
+  location: Pick<ParkingLocation, "name" | "address">,
+  origin: string,
+  email?: string,
+): Promise<{ url: string | null }> {
+  if (!getStripe() && simulatedPayments()) return { url: `${origin}/checkout/simulated?booking=${booking.id}` };
   const stripe = requireStripe();
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
@@ -74,6 +89,30 @@ export async function applyCheckoutSession(sessionOrId: string | Stripe.Checkout
 
   const bookingId = session.metadata?.booking_id;
   if (!bookingId) return { applied: false as const, reason: "no booking" };
+  return markBookingPaid(admin, bookingId, paymentIntent);
+}
+
+/**
+ * Local simulated checkout (no Stripe configured). Only callable by the
+ * booking owner, and only when simulatedPayments() allows it.
+ */
+export async function applySimulatedPayment(target: { bookingId?: string; extensionId?: string }, userId: string) {
+  if (getStripe() || !simulatedPayments()) throw new ApiError(403, "Simulated payments are disabled");
+  const admin = createAdminClient();
+  const paymentId = `sim_${crypto.randomUUID().replace(/-/g, "")}`;
+  if (target.extensionId) {
+    const { data: ext } = await admin.from("booking_extensions").select("user_id, booking_id").eq("id", target.extensionId).maybeSingle();
+    if (!ext || ext.user_id !== userId) throw new ApiError(404, "Extension not found");
+    const r = await applyExtension(admin, target.extensionId, paymentId);
+    return { ...r, bookingId: ext.booking_id as string };
+  }
+  const { data: b } = await admin.from("bookings").select("user_id").eq("id", target.bookingId!).maybeSingle();
+  if (!b || b.user_id !== userId) throw new ApiError(404, "Booking not found");
+  const r = await markBookingPaid(admin, target.bookingId!, paymentId);
+  return { ...r, bookingId: target.bookingId! };
+}
+
+async function markBookingPaid(admin: Admin, bookingId: string, paymentIntent: string | null) {
   const { data: booking } = await admin.from("bookings").select("*").eq("id", bookingId).single<Booking>();
   if (!booking) return { applied: false as const, reason: "missing booking" };
   if (booking.stripe_payment_id) return { applied: true as const, booking };
@@ -88,9 +127,7 @@ export async function applyCheckoutSession(sessionOrId: string | Stripe.Checkout
 
   if (error) {
     // The hold expired and someone else took the space meanwhile: refund in full.
-    if (paymentIntent) {
-      await stripe.refunds.create({ payment_intent: paymentIntent }, { idempotencyKey: `late-refund-${bookingId}` });
-    }
+    await refundPayment(paymentIntent, `late-refund-${bookingId}`);
     await admin.from("bookings").update({ status: "cancelled", stripe_payment_id: paymentIntent, refund_amount: booking.total_price, cancelled_at: new Date().toISOString() }).eq("id", bookingId);
     await admin.from("notifications").insert({
       user_id: booking.user_id,
@@ -111,8 +148,7 @@ async function applyExtension(admin: Admin, extensionId: string | undefined, pay
   if (ext.status === "paid") return { applied: true as const };
   const { error } = await admin.from("bookings").update({ end_time: ext.new_end_time, ending_notified: false }).eq("id", ext.booking_id);
   if (error) {
-    const stripe = requireStripe();
-    if (paymentIntent) await stripe.refunds.create({ payment_intent: paymentIntent }, { idempotencyKey: `ext-refund-${extensionId}` });
+    await refundPayment(paymentIntent, `ext-refund-${extensionId}`);
     await admin.from("booking_extensions").update({ status: "failed", stripe_payment_id: paymentIntent }).eq("id", extensionId);
     return { applied: false as const, reason: "conflict-refunded" };
   }
@@ -161,6 +197,9 @@ export async function extendBooking(booking: Booking, location: ParkingLocation,
     await applyExtension(admin, ext.id, null);
     return { url: null, new_end_time: newEnd.toISOString(), amount };
   }
+  if (!getStripe() && simulatedPayments()) {
+    return { url: `${origin}/checkout/simulated?extension=${ext.id}`, new_end_time: newEnd.toISOString(), amount };
+  }
   const stripe = requireStripe();
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
@@ -208,13 +247,7 @@ export async function cancelBooking(booking: Booking) {
     throw new ApiError(400, "This booking can't be cancelled");
   }
   const refund = refundFor({ ...booking, total_price: Number(booking.total_price) });
-  if (refund.amount > 0 && booking.stripe_payment_id) {
-    const stripe = requireStripe();
-    await stripe.refunds.create(
-      { payment_intent: booking.stripe_payment_id, amount: toCents(refund.amount) },
-      { idempotencyKey: `cancel-${booking.id}` },
-    );
-  }
+  if (refund.amount > 0) await refundPayment(booking.stripe_payment_id, `cancel-${booking.id}`, refund.amount);
   if (booking.stripe_checkout_session_id && booking.status === "pending_payment") {
     await getStripe()?.checkout.sessions.expire(booking.stripe_checkout_session_id).catch(() => undefined);
   }

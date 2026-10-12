@@ -72,6 +72,8 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [liveFlash, setLiveFlash] = useState(0);
   const started = useRef(false);
+  // When the app itself moves the map (zoom to results), don't offer "Search this area".
+  const autoMoveUntil = useRef(0);
   const listRef = useRef<HTMLDivElement>(null);
 
   // ---------------------------------------------------------------- searches
@@ -79,6 +81,7 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
     setResults(rows);
     setStatus("done");
     setSelectedId(null);
+    autoMoveUntil.current = Date.now() + 2500;
     setFitPoints([center, ...rows.slice(0, 6).map((r) => ({ lat: r.lat, lng: r.lng }))]);
     setMovedBounds(null);
     setSnap((s) => (s === "peek" ? "half" : s));
@@ -194,7 +197,9 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
   const onBoundsChange = useCallback(
     (b: Bounds) => {
       void loadBounds(b);
-      if (origin) {
+      if (Date.now() < autoMoveUntil.current) {
+        setMovedBounds(null);
+      } else if (origin) {
         const c = { lat: (b.minLat + b.maxLat) / 2, lng: (b.minLng + b.maxLng) / 2 };
         setMovedBounds(haversine(c, origin) > Math.max(700, filters.radius_m * 0.6) ? b : null);
       }

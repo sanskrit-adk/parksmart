@@ -9,19 +9,32 @@ export const publicEnv = {
   siteUrl: process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
 };
 
+/** Treats unset values and .env.example placeholders (sk_test_..., YOUR-…) as empty. */
+export function secret(v: string | undefined) {
+  return !v || /\.\.\.$|YOUR-/.test(v) ? "" : v;
+}
+
 export function serverEnv() {
   return {
-    supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
-    openaiApiKey: process.env.OPENAI_API_KEY ?? "",
+    supabaseServiceRoleKey: secret(process.env.SUPABASE_SERVICE_ROLE_KEY),
+    openaiApiKey: secret(process.env.OPENAI_API_KEY),
     openaiModel: process.env.OPENAI_MODEL || "gpt-4.1-mini",
     openaiVisionModel: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || "gpt-4.1-mini",
-    stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? "",
-    stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",
+    stripeSecretKey: secret(process.env.STRIPE_SECRET_KEY),
+    stripeWebhookSecret: secret(process.env.STRIPE_WEBHOOK_SECRET),
     cvServiceUrl: process.env.CV_SERVICE_URL ?? "",
     cvServiceToken: process.env.CV_SERVICE_TOKEN ?? "",
     cronSecret: process.env.CRON_SECRET ?? "",
   };
 }
 
-export const hasAI = () => Boolean(process.env.OPENAI_API_KEY);
-export const hasStripe = () => Boolean(process.env.STRIPE_SECRET_KEY);
+export const hasAI = () => Boolean(secret(process.env.OPENAI_API_KEY));
+
+/**
+ * Local testing without Stripe: checkout is simulated (no money moves) when no
+ * Stripe key is set AND it's a dev server or ALLOW_SIMULATED_PAYMENTS=true.
+ * Never enable this on a public deployment.
+ */
+export const simulatedPayments = () =>
+  !secret(process.env.STRIPE_SECRET_KEY) && (process.env.NODE_ENV !== "production" || process.env.ALLOW_SIMULATED_PAYMENTS === "true");
+export const hasStripe = () => Boolean(secret(process.env.STRIPE_SECRET_KEY));

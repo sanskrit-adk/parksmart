@@ -24,6 +24,7 @@ export function rankLocations(
   const maxPrice = Math.max(...prices);
   const minDist = Math.min(...rows.map((r) => r.distance_m));
   const maxProb = Math.max(...rows.map((r) => Number(r.free_probability)));
+  const cheapestCount = prices.filter((p) => p === minPrice).length;
 
   const priceWeight = prefs.price_sensitivity === "high" ? 0.35 : prefs.price_sensitivity === "low" ? 0.15 : 0.25;
   const maxWalk = prefs.max_walk_minutes ?? 12;
@@ -65,6 +66,7 @@ export function rankLocations(
     r.reason = explain(r, {
       isClosest: r.distance_m === minDist,
       isCheapest: Number(r.hourly_price) === minPrice && maxPrice > minPrice,
+      cheapestTied: cheapestCount > 1,
       isBestAvailability: Number(r.free_probability) === maxProb,
       maxPrice: filters.max_price_per_hour,
       maxTotal: filters.max_total_price,
@@ -88,6 +90,7 @@ function explain(
     isClosest: boolean;
     isCheapest: boolean;
     isBestAvailability: boolean;
+    cheapestTied: boolean;
     maxPrice: number | null;
     maxTotal: number | null;
     wantsCovered: boolean;
@@ -98,13 +101,13 @@ function explain(
   const price = Number(r.hourly_price);
   let lead: string;
   if (ctx.isClosest) lead = "Closest";
-  else if (ctx.isCheapest) lead = "Cheapest";
+  else if (ctx.isCheapest) lead = ctx.cheapestTied ? "One of the cheapest" : "Cheapest";
   else if (ctx.isBestAvailability) lead = "Most likely to have space";
   else lead = `${r.walk_minutes}-min walk`;
 
   let priceClause = "";
   if (price === 0) priceClause = ", free to park";
-  else if (lead !== "Cheapest") {
+  else if (!ctx.isCheapest || lead === "Closest") {
     if (ctx.maxTotal && r.estimated_total <= ctx.maxTotal) priceClause = ` at ${money(r.estimated_total)} total`;
     else if (ctx.maxPrice && price <= ctx.maxPrice) priceClause = ` under ${money(Math.ceil(ctx.maxPrice), { compact: true })}/hr`;
     else priceClause = ` at ${money(price)}/hr`;

@@ -24,7 +24,8 @@ export async function geocode(
   opts: { proximity?: { lat: number; lng: number }; limit?: number; signal?: AbortSignal } = {},
 ): Promise<GeocodeResult[]> {
   const token = publicEnv.mapboxToken;
-  if (!token || !query.trim()) return [];
+  if (!query.trim()) return [];
+  if (!token) return photon(query, opts);
   const params = new URLSearchParams({
     q: query,
     access_token: token,
@@ -44,6 +45,39 @@ export async function geocode(
     lng: f.geometry.coordinates[0],
     lat: f.geometry.coordinates[1],
   }));
+}
+
+interface PhotonFeature {
+  geometry: { coordinates: [number, number] };
+  properties: { osm_type?: string; osm_id?: number; name?: string; housenumber?: string; street?: string; city?: string; state?: string; postcode?: string };
+}
+
+/** Free OpenStreetMap geocoder (photon.komoot.io) used when no Mapbox token is set. */
+async function photon(query: string, opts: { proximity?: { lat: number; lng: number }; limit?: number; signal?: AbortSignal }): Promise<GeocodeResult[]> {
+  const near = opts.proximity ?? { lat: 37.65, lng: -122.27 };
+  const params = new URLSearchParams({
+    q: query,
+    limit: String(opts.limit ?? 5),
+    lat: String(near.lat),
+    lon: String(near.lng),
+    bbox: "-123.2,36.9,-121.2,38.6",
+    lang: "en",
+  });
+  const res = await fetch(`https://photon.komoot.io/api/?${params}`, { signal: opts.signal });
+  if (!res.ok) throw new Error(`Geocoding failed (${res.status})`);
+  const json = (await res.json()) as { features: PhotonFeature[] };
+  return json.features.map((f, i) => {
+    const p = f.properties;
+    const street = [p.housenumber, p.street].filter(Boolean).join(" ");
+    const address = [street || (p.name !== p.city ? p.name : ""), p.city, p.state].filter(Boolean).join(", ");
+    return {
+      id: `${p.osm_type ?? "x"}${p.osm_id ?? i}`,
+      name: p.name ?? (street || query),
+      address,
+      lng: f.geometry.coordinates[0],
+      lat: f.geometry.coordinates[1],
+    };
+  });
 }
 
 export async function reverseGeocode(lat: number, lng: number): Promise<string | null> {

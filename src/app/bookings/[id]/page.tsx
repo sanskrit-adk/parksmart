@@ -59,7 +59,7 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
         ← My bookings
       </Link>
 
-      {(justPaid || (sessionId && live)) && (
+      {(justPaid || ((sessionId || sp.paid === "1") && live)) && (
         <div className="mt-4 flex items-center gap-3 rounded-2xl border border-free/40 bg-free/10 p-4">
           <CheckCircle2Icon className="size-8 shrink-0 text-free" aria-hidden />
           <div>
