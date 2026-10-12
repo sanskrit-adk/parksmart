@@ -1,26 +1,180 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-heading: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* Brand */
+  --color-navy: var(--navy);
+  --color-navy-foreground: var(--navy-foreground);
+  --color-teal: var(--teal);
+  --color-teal-foreground: var(--teal-foreground);
+  --color-teal-strong: var(--teal-strong);
+
+  /* Availability */
+  --color-free: var(--free);
+  --color-filling: var(--filling);
+  --color-full: var(--full);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  --shadow-soft: 0 1px 2px oklch(0.2 0.05 265 / 0.04), 0 8px 24px -8px oklch(0.2 0.05 265 / 0.12);
+  --shadow-lift: 0 2px 4px oklch(0.2 0.05 265 / 0.05), 0 18px 40px -12px oklch(0.2 0.05 265 / 0.22);
+
+  --animate-pulse-ring: pulse-ring 2.4s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+  --animate-shimmer: shimmer 2.2s linear infinite;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@keyframes pulse-ring {
+  0% { transform: scale(0.85); opacity: 0.7; }
+  80%, 100% { transform: scale(2.2); opacity: 0; }
+}
+
+@keyframes shimmer {
+  from { background-position: -200% 0; }
+  to { background-position: 200% 0; }
+}
+
+:root {
+  --navy: oklch(0.255 0.075 266);
+  --navy-foreground: oklch(0.985 0.005 250);
+  --teal: oklch(0.82 0.135 185);
+  --teal-foreground: oklch(0.24 0.07 266);
+  /* Darker teal for text/icons on light surfaces (WCAG AA on white). */
+  --teal-strong: oklch(0.5 0.1 192);
+
+  --free: oklch(0.6 0.16 152);
+  --filling: oklch(0.74 0.16 70);
+  --full: oklch(0.6 0.2 25);
+
+  --background: oklch(0.982 0.005 255);
+  --foreground: oklch(0.22 0.04 266);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0.04 266);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0.04 266);
+  --primary: var(--navy);
+  --primary-foreground: var(--navy-foreground);
+  --secondary: oklch(0.955 0.012 255);
+  --secondary-foreground: oklch(0.26 0.06 266);
+  --muted: oklch(0.96 0.008 255);
+  --muted-foreground: oklch(0.47 0.03 262);
+  --accent: oklch(0.95 0.035 190);
+  --accent-foreground: oklch(0.3 0.07 230);
+  --destructive: oklch(0.56 0.21 25);
+  --border: oklch(0.91 0.012 258);
+  --input: oklch(0.89 0.014 258);
+  --ring: oklch(0.6 0.12 192);
+  --chart-1: oklch(0.6 0.12 192);
+  --chart-2: oklch(0.32 0.09 266);
+  --chart-3: oklch(0.74 0.16 70);
+  --chart-4: oklch(0.6 0.16 152);
+  --chart-5: oklch(0.6 0.2 25);
+  --radius: 0.875rem;
+}
+
+.dark {
+  --teal-strong: oklch(0.82 0.135 185);
+
+  --background: oklch(0.165 0.035 266);
+  --foreground: oklch(0.96 0.01 255);
+  --card: oklch(0.215 0.04 266);
+  --card-foreground: oklch(0.96 0.01 255);
+  --popover: oklch(0.225 0.042 266);
+  --popover-foreground: oklch(0.96 0.01 255);
+  --primary: var(--teal);
+  --primary-foreground: var(--teal-foreground);
+  --secondary: oklch(0.27 0.045 266);
+  --secondary-foreground: oklch(0.96 0.01 255);
+  --muted: oklch(0.26 0.04 266);
+  --muted-foreground: oklch(0.74 0.03 258);
+  --accent: oklch(0.3 0.06 210);
+  --accent-foreground: oklch(0.93 0.04 190);
+  --destructive: oklch(0.68 0.19 22);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.82 0.135 185 / 70%);
+  --chart-1: oklch(0.82 0.135 185);
+  --chart-2: oklch(0.7 0.1 260);
+  --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.3), 0 8px 24px -8px oklch(0 0 0 / 0.5);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+  h1, h2, h3 {
+    @apply tracking-tight text-balance;
+  }
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-ring;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer utilities {
+  .shadow-soft { box-shadow: var(--shadow-soft); }
+  .shadow-lift { box-shadow: var(--shadow-lift); }
+  .pb-safe { padding-bottom: max(env(safe-area-inset-bottom), 0px); }
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, oklch(1 0 0 / 0.06) 1px, transparent 1px),
+      linear-gradient(to bottom, oklch(1 0 0 / 0.06) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+  .scrollbar-none { scrollbar-width: none; }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
+}
+
+/* Mapbox popups / markers inherit the theme. */
+.mapboxgl-ctrl-group { border-radius: 0.75rem !important; overflow: hidden; }
+.mapboxgl-ctrl-attrib { font-size: 10px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

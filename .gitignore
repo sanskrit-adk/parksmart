@@ -39,3 +39,14 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# keep the template, ignore real secrets
+!.env.example
+
+# seed download cache (re-created by npm run seed)
+/supabase/seed-data/
+
+# python
+__pycache__/
+.venv/
+*.pt
