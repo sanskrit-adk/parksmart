@@ -9,7 +9,10 @@
     "lint": "eslint",
     "seed": "tsx scripts/seed.ts",
     "typecheck": "next typegen && tsc --noEmit",
-    "test:db": "node scripts/test-db.mjs"
+    "test:db": "node scripts/test-db.mjs",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "check:env": "tsx scripts/check-env.ts",
+    "setup": "npm run check:env; npm run db:migrate && npm run seed -- --region sf"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
@@ -42,12 +45,14 @@
     "@tailwindcss/turbopack": "^4",
     "@types/geojson": "^7946.0.16",
     "@types/node": "^20",
+    "@types/pg": "^8.23.1",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "dotenv": "^18.0.7",
     "eslint": "^9",
     "eslint-config-next": "16.4.0",
+    "pg": "^8.23.1",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5"

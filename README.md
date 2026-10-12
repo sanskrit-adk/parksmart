@@ -30,18 +30,15 @@ Prerequisites: Node.js 20.9+, a free [Supabase](https://supabase.com) project, a
 npm install
 cp .env.example .env.local          # fill in the keys (see below)
 
-# 1. Create the schema in Supabase (pick one)
-npx supabase init                   # once; keeps the existing supabase/migrations
-npx supabase link --project-ref YOUR_PROJECT_REF
-npx supabase db push
-#    …or paste each file in supabase/migrations/ (in order) into the Supabase SQL editor.
+npm run check:env                   # tests every key against the real service
+npm run setup                       # check:env → db:migrate → seed (SF): schema, real data, test accounts
+npm run dev                         # http://localhost:3000
 
-# 2. Import real parking data + create test accounts
+# Individually:
+npm run db:migrate                  # applies supabase/migrations via SUPABASE_DB_URL (tracked, re-runnable)
 npm run seed -- --region sf         # San Francisco only, ~2–5 min
 # npm run seed                      # whole Bay Area (16 Overpass tiles, slower)
-
-# 3. Run
-npm run dev                         # http://localhost:3000
+# Alternatively: npx supabase link + npx supabase db push, or paste the SQL files into the SQL editor.
 
 # 4. Payments locally (separate terminal)
 stripe listen --forward-to localhost:3000/api/stripe/webhook   # copy the whsec_ into .env.local
@@ -68,6 +65,7 @@ Every key is listed with comments in [`.env.example`](.env.example).
 | `NEXT_PUBLIC_SUPABASE_URL` | client | yes | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | client | yes | Public anon key (RLS protects data) |
 | `SUPABASE_SERVICE_ROLE_KEY` | **server** | yes | Payments, detections, seed. Never exposed to the browser |
+| `SUPABASE_DB_URL` | **server** | for setup | Postgres connection string used by `db:migrate` / `check:env` |
 | `NEXT_PUBLIC_MAPBOX_TOKEN` | client | yes | Map, geocoding autocomplete, static map images |
 | `OPENAI_API_KEY` | **server** | recommended | All LLM/vision features |
 | `OPENAI_MODEL` / `OPENAI_VISION_MODEL` | server | no | Defaults to `gpt-4.1-mini` |
