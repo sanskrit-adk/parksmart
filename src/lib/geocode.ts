@@ -15,8 +15,8 @@ interface MapboxFeature {
 }
 
 /**
- * Forward geocoding via Mapbox Geocoding v6, biased toward the Bay Area (or
- * the user's position when known). Works from both server and browser since
+ * Forward geocoding (worldwide), biased toward the user's position when known.
+ * Mapbox Geocoding v6 when a token is set, otherwise Photon (OpenStreetMap). Works from both server and browser since
  * the Mapbox public token is URL-restricted, not secret.
  */
 export async function geocode(
@@ -29,11 +29,9 @@ export async function geocode(
   const params = new URLSearchParams({
     q: query,
     access_token: token,
-    country: "us",
     limit: String(opts.limit ?? 5),
     autocomplete: "true",
-    proximity: opts.proximity ? `${opts.proximity.lng},${opts.proximity.lat}` : "-122.27,37.65",
-    bbox: "-123.2,36.9,-121.2,38.6",
+    proximity: opts.proximity ? `${opts.proximity.lng},${opts.proximity.lat}` : "ip",
   });
   const res = await fetch(`https://api.mapbox.com/search/geocode/v6/forward?${params}`, { signal: opts.signal });
   if (!res.ok) throw new Error(`Geocoding failed (${res.status})`);
@@ -49,27 +47,23 @@ export async function geocode(
 
 interface PhotonFeature {
   geometry: { coordinates: [number, number] };
-  properties: { osm_type?: string; osm_id?: number; name?: string; housenumber?: string; street?: string; city?: string; state?: string; postcode?: string };
+  properties: { osm_type?: string; osm_id?: number; name?: string; housenumber?: string; street?: string; city?: string; state?: string; postcode?: string; country?: string };
 }
 
 /** Free OpenStreetMap geocoder (photon.komoot.io) used when no Mapbox token is set. */
 async function photon(query: string, opts: { proximity?: { lat: number; lng: number }; limit?: number; signal?: AbortSignal }): Promise<GeocodeResult[]> {
-  const near = opts.proximity ?? { lat: 37.65, lng: -122.27 };
-  const params = new URLSearchParams({
-    q: query,
-    limit: String(opts.limit ?? 5),
-    lat: String(near.lat),
-    lon: String(near.lng),
-    bbox: "-123.2,36.9,-121.2,38.6",
-    lang: "en",
-  });
+  const params = new URLSearchParams({ q: query, limit: String(opts.limit ?? 5), lang: "en" });
+  if (opts.proximity) {
+    params.set("lat", String(opts.proximity.lat));
+    params.set("lon", String(opts.proximity.lng));
+  }
   const res = await fetch(`https://photon.komoot.io/api/?${params}`, { signal: opts.signal });
   if (!res.ok) throw new Error(`Geocoding failed (${res.status})`);
   const json = (await res.json()) as { features: PhotonFeature[] };
   return json.features.map((f, i) => {
     const p = f.properties;
     const street = [p.housenumber, p.street].filter(Boolean).join(" ");
-    const address = [street || (p.name !== p.city ? p.name : ""), p.city, p.state].filter(Boolean).join(", ");
+    const address = [street || (p.name !== p.city ? p.name : ""), p.city, p.state, p.country].filter(Boolean).join(", ");
     return {
       id: `${p.osm_type ?? "x"}${p.osm_id ?? i}`,
       name: p.name ?? (street || query),

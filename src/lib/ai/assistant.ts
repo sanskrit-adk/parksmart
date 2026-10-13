@@ -140,8 +140,8 @@ export async function runAssistant(
     {
       role: "system",
       content: [
-        "You are ParkSmart's parking assistant for the San Francisco Bay Area. Be brief, warm and concrete (2–4 sentences, plain text, no markdown tables).",
-        `Current time: ${now.toISOString()} (${dateTime(now.toISOString())} Pacific).`,
+        "You are ParkSmart's parking assistant. ParkSmart works anywhere: San Francisco has curated city data, and other areas use OpenStreetMap parking loaded on demand. Be brief, warm and concrete (2–4 sentences, plain text, no markdown tables).",
+        `Current time: ${now.toISOString()}.`,
         profile ? `The user is signed in as ${profile.name ?? "a driver"}.` : "The user is NOT signed in: they can search, but must sign in to book or manage bookings.",
         position ? "The user's current location is known." : "The user's location is unknown; ask for a destination if needed.",
         "Always use tools for facts about parking, prices, availability and bookings — never invent them.",
@@ -235,7 +235,7 @@ async function toolSearch(ctx: Ctx, args: Args) {
   const top = results.slice(0, 5);
   ctx.cards = top.map(toCard);
   return {
-    searched_near: placeName ?? (ctx.position ? "the user's location" : "downtown San Francisco"),
+    searched_near: placeName ?? (ctx.position ? "the user's location" : "downtown San Francisco (location unknown)"),
     results: top.map((r) => ({
       id: r.id,
       name: r.name,

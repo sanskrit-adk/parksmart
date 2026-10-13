@@ -17,7 +17,7 @@ import { createClient } from "@supabase/supabase-js";
 import { config } from "dotenv";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseOsmOpeningHours } from "../src/lib/opening-hours";
+import { osmToRow, overpass, parkingQuery, type LocationRow, type OsmElement } from "../src/lib/osm";
 
 config({ path: ".env.local" });
 config();
@@ -36,150 +36,10 @@ const REGIONS = {
 } as const;
 const region = REGIONS[regionArg as keyof typeof REGIONS] ?? REGIONS.bayarea;
 
-const OVERPASS = [
-  "https://overpass-api.de/api/interpreter",
-  "https://overpass.private.coffee/api/interpreter",
-  "https://overpass.kumi.systems/api/interpreter",
-];
-const UA = "ParkSmart-seed/1.0 (+https://github.com/; open-data import)";
-
-type LocType = "garage" | "lot" | "street" | "private";
-interface Row {
-  external_id: string;
-  name: string;
-  address: string | null;
-  city: string | null;
-  geom: string;
-  type: LocType;
-  covered: boolean;
-  ev_charging: boolean;
-  accessible: boolean;
-  total_spots: number;
-  capacity_estimated: boolean;
-  hourly_price: number;
-  price_estimated: boolean;
-  source: "osm" | "sfmta";
-  opening_hours: unknown;
-  description: string | null;
-  osm_tags: Record<string, string> | null;
-}
-
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const log = (...a: unknown[]) => console.log("•", ...a);
-
-// ---------------------------------------------------------------------------
-// OpenStreetMap
-// ---------------------------------------------------------------------------
-interface OsmElement {
-  type: "node" | "way" | "relation";
-  id: number;
-  lat?: number;
-  lon?: number;
-  center?: { lat: number; lon: number };
-  tags?: Record<string, string>;
-}
-
-async function overpass(query: string, attempts = 4): Promise<OsmElement[]> {
-  let lastErr: unknown;
-  for (let attempt = 0; attempt < attempts; attempt++) {
-    const url = OVERPASS[attempt % OVERPASS.length];
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
-        body: new URLSearchParams({ data: query }),
-        signal: AbortSignal.timeout(180_000),
-      });
-      const text = await res.text();
-      if (!res.ok || !text.trimStart().startsWith("{")) throw new Error(`${url} → ${res.status}: ${text.slice(0, 120).replace(/\s+/g, " ")}`);
-      return (JSON.parse(text) as { elements: OsmElement[] }).elements;
-    } catch (err) {
-      lastErr = err;
-      const wait = 5000 * (attempt + 1);
-      console.warn(`  Overpass attempt ${attempt + 1} failed (${(err as Error).message}); retrying in ${wait / 1000}s`);
-      await sleep(wait);
-    }
-  }
-  throw lastErr;
-}
-
-const DOWNTOWN_SF = { lat: 37.788, lng: -122.4075 };
-function km(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
-  const R = 6371;
-  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
-  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(h));
-}
-const inSF = (lat: number, lng: number) => lat > 37.70 && lat < 37.835 && lng > -122.52 && lng < -122.355;
-
-function parseCharge(charge?: string): number | null {
-  if (!charge) return null;
-  const m = charge.match(/\$?\s*(\d+(?:\.\d+)?)\s*(?:USD)?\s*\/\s*(?:h|hr|hour)\b/i) ?? charge.match(/(\d+(?:\.\d+)?)\s*USD\s*\/\s*hour/i);
-  return m ? Number(m[1]) : null;
-}
-
-function osmToRow(el: OsmElement): Row | null {
-  const t = el.tags ?? {};
-  const lat = el.lat ?? el.center?.lat;
-  const lng = el.lon ?? el.center?.lon;
-  if (lat == null || lng == null) return null;
-  const parking = t.parking ?? "";
-  const capacity = Number.parseInt(t.capacity ?? "", 10);
-  // Keep places drivers can actually use and identify.
-  const notable = Boolean(t.name) || capacity >= 10 || ["multi-storey", "underground", "rooftop"].includes(parking);
-  if (!notable) return null;
-  if (["private", "no", "customers", "delivery", "employees", "permit", "residents"].includes(t.access ?? "")) return null;
-
-  const type: LocType = ["multi-storey", "underground", "rooftop"].includes(parking)
-    ? "garage"
-    : ["street_side", "lane", "on_kerb", "half_on_kerb"].includes(parking)
-      ? "street"
-      : "lot";
-  const covered = ["multi-storey", "underground"].includes(parking) || t.covered === "yes";
-  const ev = Number.parseInt(t["capacity:charging"] ?? "0", 10) > 0 || t["capacity:charging"] === "yes";
-  const accessible = t.wheelchair === "yes" || Number.parseInt(t["capacity:disabled"] ?? "0", 10) > 0 || t["capacity:disabled"] === "yes";
-
-  const capEstimate = type === "garage" ? 250 : type === "street" ? 12 : 40;
-  const total = Number.isFinite(capacity) && capacity > 0 ? Math.min(capacity, 5000) : capEstimate;
-
-  const listed = parseCharge(t.charge);
-  let price: number;
-  let priceEstimated = false;
-  if (t.fee === "no") price = 0;
-  else if (listed !== null) price = listed;
-  else {
-    priceEstimated = true;
-    const sf = inSF(lat, lng);
-    const downtown = km({ lat, lng }, DOWNTOWN_SF) < 2.5;
-    price = type === "garage" ? (downtown ? 7 : sf ? 4.5 : 3) : downtown ? 5 : sf ? 3.5 : 2;
-  }
-
-  const street = [t["addr:housenumber"], t["addr:street"]].filter(Boolean).join(" ");
-  const city = t["addr:city"] ?? (inSF(lat, lng) ? "San Francisco" : null);
-  const typeLabel = type === "garage" ? "Parking garage" : type === "street" ? "Street parking" : "Parking lot";
-  const name = t.name ?? (t["addr:street"] ? `${typeLabel} on ${t["addr:street"]}` : typeLabel);
-
-  return {
-    external_id: `osm:${el.type}/${el.id}`,
-    name: name.slice(0, 120),
-    address: street ? [street, city].filter(Boolean).join(", ") : null,
-    city,
-    geom: `SRID=4326;POINT(${lng} ${lat})`,
-    type,
-    covered,
-    ev_charging: ev,
-    accessible,
-    total_spots: total,
-    capacity_estimated: !(Number.isFinite(capacity) && capacity > 0),
-    hourly_price: price,
-    price_estimated: priceEstimated,
-    source: "osm",
-    opening_hours: parseOsmOpeningHours(t.opening_hours),
-    description: t.operator ? `Operated by ${t.operator}.` : null,
-    osm_tags: t,
-  };
-}
+type Row = LocationRow;
+const UA = "ParkSmart-seed/1.0 (open-data import)";
 
 /**
  * Fetches one bbox, caching it on disk so an interrupted run resumes. If the
@@ -190,7 +50,7 @@ async function fetchTile(s: number, w: number, n: number, e: number, depth: numb
   const tileCache = join(CACHE_DIR, "tiles", `${bbox.replace(/,/g, "_")}.json`);
   if (!REFRESH && existsSync(tileCache)) return JSON.parse(readFileSync(tileCache, "utf8"));
   try {
-    const els = await overpass(`[out:json][timeout:90];nwr["amenity"="parking"](${bbox});out center tags;`, depth < 2 ? 4 : 8);
+    const els = await overpass(parkingQuery(s, w, n, e), { attempts: depth < 2 ? 4 : 8, log: (m) => console.warn("  " + m) });
     mkdirSync(join(CACHE_DIR, "tiles"), { recursive: true });
     writeFileSync(tileCache, JSON.stringify(els));
     await sleep(1500); // be polite to the public Overpass servers
@@ -229,7 +89,7 @@ async function loadOsm(): Promise<Row[]> {
     writeFileSync(cacheFile, JSON.stringify(elements));
   }
   const seen = new Set<string>();
-  const rows = elements.map(osmToRow).filter((r): r is Row => r !== null && !seen.has(r.external_id) && Boolean(seen.add(r.external_id)));
+  const rows = elements.map((el) => osmToRow(el)).filter((r): r is Row => r !== null && !seen.has(r.external_id) && Boolean(seen.add(r.external_id)));
   log(`OSM: ${elements.length} parking features → ${rows.length} usable public locations`);
   return rows;
 }
@@ -301,6 +161,7 @@ async function loadMeters(): Promise<Row[]> {
         hourly_price: hood && PRICEY.has(hood) ? 3.5 : hood && MID.has(hood) ? 2.75 : 2,
         price_estimated: true,
         source: "sfmta",
+        timezone: "America/Los_Angeles",
         opening_hours: { mon: [["09:00", "22:00"]], tue: [["09:00", "22:00"]], wed: [["09:00", "22:00"]], thu: [["09:00", "22:00"]], fri: [["09:00", "22:00"]], sat: [["09:00", "22:00"]], sun: [["12:00", "18:00"]] },
         description: `${g.meters} SFMTA metered spaces on this block face${hood ? ` in ${hood}` : ""}. Meter hours and rates are set by SFMTA and posted on each meter.`,
         osm_tags: null,

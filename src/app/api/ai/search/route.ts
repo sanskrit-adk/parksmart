@@ -3,6 +3,7 @@ import { ApiError, handler, ok, parseJson } from "@/lib/api";
 import { parseSearchQuery } from "@/lib/ai/search-parser";
 import { getSession } from "@/lib/auth";
 import { geocode, type GeocodeResult } from "@/lib/geocode";
+import { ipLocation } from "@/lib/ip-location";
 import { SF_CENTER } from "@/lib/geo";
 import { DEFAULT_FILTERS, searchParking } from "@/lib/search";
 import type { SearchFilters } from "@/lib/types";
@@ -13,6 +14,9 @@ const schema = z.object({
   lng: z.number().min(-180).max(180).nullable().optional(),
 });
 
+// First search in a new area imports its parking from OpenStreetMap (can take ~20s).
+export const maxDuration = 60;
+
 /**
  * AI search: natural language → structured filters (LLM, strict JSON schema)
  * → geocode the destination → PostGIS search → AI ranking.
@@ -20,7 +24,10 @@ const schema = z.object({
 export const POST = handler(async (req: Request) => {
   const body = await parseJson(req, schema);
   const { filters: parsed, engine } = await parseSearchQuery(body.query);
-  const userPos = body.lat != null && body.lng != null ? { lat: body.lat, lng: body.lng } : null;
+  // Precise browser position if shared, otherwise the visitor's approximate (IP) location.
+  const gps = body.lat != null && body.lng != null ? { lat: body.lat, lng: body.lng } : null;
+  const approx = gps ? null : ipLocation(req.headers);
+  const userPos = gps ?? (approx ? { lat: approx.lat, lng: approx.lng } : null);
 
   let place: { name: string; address: string; lat: number; lng: number } | null = null;
   if (parsed.place) {
@@ -41,7 +48,7 @@ export const POST = handler(async (req: Request) => {
   };
 
   const { supabase, profile } = await getSession();
-  const { results, widened } = await searchParking(supabase, { ...filters, lat: center.lat, lng: center.lng }, profile?.preferences);
+  const { results, widened, coverage } = await searchParking(supabase, { ...filters, lat: center.lat, lng: center.lng }, profile?.preferences);
 
   return ok({
     engine,
@@ -49,7 +56,9 @@ export const POST = handler(async (req: Request) => {
     filters,
     place,
     usedUserLocation: !place && Boolean(userPos),
+    approximateLocation: !place && !gps && approx ? approx.city ?? "your area" : null,
     results,
     widened,
+    coverage,
   });
 });

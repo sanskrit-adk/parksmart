@@ -16,7 +16,7 @@ const SCHEMA = {
     place: { type: ["string", "null"], description: "Destination as the user wrote it, or null if none (search near the user)." },
     place_full_name: {
       type: ["string", "null"],
-      description: "Fully qualified, geocodable name of the destination including city, e.g. 'San Francisco Bay University, Fremont, CA'. Expand abbreviations you are confident about (SFBU, SFO, UCSF, AT&T Park → Oracle Park).",
+      description: "Fully qualified, geocodable name of the destination including city and country when known, e.g. 'San Francisco Bay University, Fremont, CA, USA'. Expand abbreviations you are confident about (SFBU, SFO, UCSF, AT&T Park → Oracle Park).",
     },
     radius_m: { type: "integer", description: "Search radius in meters. 'near'/'close' ≈ 800, default 2000, 'walking distance' ≈ 600." },
     duration_hours: { type: "number", description: "Parking duration in hours, default 2." },
@@ -49,8 +49,8 @@ export async function parseSearchQuery(query: string, now = new Date()): Promise
         name: "parking_search",
         schema: SCHEMA,
         system:
-          "You convert natural-language parking requests in the San Francisco Bay Area into search filters. " +
-          `The current time is ${now.toISOString()} (user timezone America/Los_Angeles). ` +
+          "You convert natural-language parking requests (anywhere in the world) into search filters. " +
+          `The current time is ${now.toISOString()}. ` +
           "Only set a filter when the user expressed it. If the user gives a total budget and a duration, set max_total_price, not max_price_per_hour.",
         user: query.slice(0, 500),
         maxTokens: 400,

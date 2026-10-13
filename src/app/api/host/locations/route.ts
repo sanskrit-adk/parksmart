@@ -1,4 +1,5 @@
 import { ApiError, handler, ok, parseJson, requireUser } from "@/lib/api";
+import { timezoneAt } from "@/lib/osm";
 import { listingSchema } from "@/lib/schemas";
 
 /** Create a host listing. Drivers become hosts on their first listing. */
@@ -19,6 +20,7 @@ export const POST = handler(async (req: Request) => {
       host_id: profile.id,
       source: "host",
       geom: `SRID=4326;POINT(${lng} ${lat})`,
+      timezone: timezoneAt(lat, lng),
       city: rest.city || null,
       description: rest.description || null,
     })

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { handler, ok, parseJson } from "@/lib/api";
 import { runAssistant } from "@/lib/ai/assistant";
 import { getSession } from "@/lib/auth";
+import { ipLocation } from "@/lib/ip-location";
 
 export const maxDuration = 60;
 
@@ -16,5 +17,6 @@ const schema = z.object({
 export const POST = handler(async (req: Request) => {
   const { messages, position } = await parseJson(req, schema);
   const { supabase, profile } = await getSession();
-  return ok(await runAssistant(supabase, profile, messages, position ?? null));
+  const approx = position ? null : ipLocation(req.headers);
+  return ok(await runAssistant(supabase, profile, messages, position ?? (approx ? { lat: approx.lat, lng: approx.lng } : null)));
 });

@@ -18,7 +18,7 @@ export function LiveStats({ stats }: { stats: PublicStats | null }) {
     { label: "Bookings today", value: stats?.bookings_today ?? 0 },
   ];
   return (
-    <section aria-label="Live stats" className="mx-auto -mt-10 w-full max-w-5xl px-4 sm:px-6">
+    <section aria-label="Live stats" className="relative z-10 mx-auto -mt-10 w-full max-w-5xl px-4 sm:px-6">
       <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border bg-border shadow-lift md:grid-cols-4">
         {items.map((s) => (
           <div key={s.label} className="bg-card px-5 py-6 text-center">

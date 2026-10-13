@@ -31,6 +31,23 @@ interface AiResponse {
   usedUserLocation: boolean;
   results: RankedLocation[];
   widened: boolean;
+  coverage?: Coverage;
+  approximateLocation?: string | null;
+}
+
+interface Coverage {
+  imported: number;
+  failed: boolean;
+}
+
+/** Tells the user when a new area's parking was just loaded (or couldn't be). */
+function reportCoverage(c: Coverage | undefined, resultCount: number) {
+  if (!c) return;
+  if (c.imported > 0) {
+    toast.success(`Loaded ${c.imported} parking places for this area`, { description: "From OpenStreetMap. Prices and capacity are estimates where not published." });
+  } else if (c.failed && resultCount === 0) {
+    toast.error("Couldn't load parking for this area right now", { description: "OpenStreetMap is busy. Try again in a minute." });
+  }
 }
 
 const DEFAULT_EDITABLE: EditableFilters = {
@@ -60,6 +77,13 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
   const [widened, setWidened] = useState(false);
+  // True when this area's parking couldn't be loaded from OpenStreetMap (offer a retry).
+  const [loadFailed, setLoadFailed] = useState(false);
+  const lastSearch = useRef<
+    | { kind: "ai"; q: string }
+    | { kind: "structured"; f: EditableFilters; center: { lat: number; lng: number; name: string }; opts: { keepAi?: boolean } }
+    | null
+  >(null);
   const [mapLocations, setMapLocations] = useState<MapLocation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -109,10 +133,17 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
           sort: f.sort,
         });
         setAiInfo({ engine: res.engine, summary: res.summary, maxTotal: f.max_total_price });
-        const center = res.place ?? { lat: f.lat ?? SF_CENTER.lat, lng: f.lng ?? SF_CENTER.lng, name: res.usedUserLocation ? "you" : "downtown SF" };
+        const center = res.place ?? {
+          lat: f.lat ?? SF_CENTER.lat,
+          lng: f.lng ?? SF_CENTER.lng,
+          name: res.approximateLocation ? `${res.approximateLocation} (approx.)` : res.usedUserLocation ? "you" : "downtown SF",
+        };
         setOrigin({ lat: center.lat, lng: center.lng, name: "name" in center ? center.name : "you" });
         setWidened(res.widened);
         showResults(res.results, center);
+        reportCoverage(res.coverage, res.results.length);
+        setLoadFailed(Boolean(res.coverage?.failed && res.results.length === 0));
+        lastSearch.current = { kind: "ai", q };
         const url = new URL(window.location.href);
         url.searchParams.set("q", q);
         window.history.replaceState(null, "", url);
@@ -133,11 +164,14 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
       setOrigin(center);
       if (!opts.keepAi) setAiInfo((a) => (a ? { ...a, summary: `Parking near ${center.name}` } : null));
       try {
-        const res = await api<{ results: RankedLocation[]; widened: boolean }>("/api/search", {
+        const res = await api<{ results: RankedLocation[]; widened: boolean; coverage?: Coverage }>("/api/search", {
           json: { ...f, lat: center.lat, lng: center.lng, max_total_price: maxTotal },
         });
         setWidened(res.widened);
         showResults(res.results, center);
+        reportCoverage(res.coverage, res.results.length);
+        setLoadFailed(Boolean(res.coverage?.failed && res.results.length === 0));
+        lastSearch.current = { kind: "structured", f, center, opts };
       } catch (e) {
         setStatus("error");
         setSnap("half");
@@ -147,6 +181,20 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
     },
     [maxTotal, showResults],
   );
+
+  /** City-level location from the network when GPS isn't available. */
+  const approximateFallback = useCallback(async (): Promise<boolean> => {
+    try {
+      const { location } = await api<{ location: { lat: number; lng: number; city: string | null } | null }>("/api/geo/ip");
+      if (!location) return false;
+      setMapCenter({ lat: location.lat, lng: location.lng });
+      toast.info("Using your approximate location", { description: "Allow location access in your browser for exact nearby results." });
+      void runStructured(filters, { lat: location.lat, lng: location.lng, name: `${location.city ?? "your area"} (approx.)` });
+      return true;
+    } catch {
+      return false;
+    }
+  }, [filters, runStructured]);
 
   // ---------------------------------------------------------------- startup
   // Runs the first search once we know where to search: the URL query, or the
@@ -164,10 +212,13 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
       void runStructured(DEFAULT_EDITABLE, { ...geo.position, name: "you" });
     } else if (geo.status === "denied" || geo.status === "unavailable") {
       started.current = true;
-      toast.info("Location is off", { description: "Showing downtown San Francisco. Search an address or ask the AI instead." });
-      void runStructured(DEFAULT_EDITABLE, { ...SF_CENTER, name: "downtown SF" });
+      void approximateFallback().then((ok) => {
+        if (ok) return;
+        toast.info("Location is off", { description: "Showing downtown San Francisco. Search an address or ask the AI instead." });
+        void runStructured(DEFAULT_EDITABLE, { ...SF_CENTER, name: "downtown SF" });
+      });
     }
-  }, [geo.status, geo.position, initialQuery, runAi, runStructured]);
+  }, [geo.status, geo.position, initialQuery, runAi, runStructured, approximateFallback]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   // ---------------------------------------------------------------- map data
@@ -260,9 +311,8 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
   async function useMyLocation() {
     const pos = await geo.request();
     if (!pos) {
-      toast.error(geo.status === "denied" ? "Location permission is blocked" : "Couldn't get your location", {
-        description: "Enable location in your browser settings, or search an address.",
-      });
+      if (await approximateFallback()) return;
+      toast.error("Couldn't get your location", { description: "Allow location access in your browser settings, or search an address." });
       return;
     }
     setMapCenter(pos);
@@ -363,7 +413,25 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
           }
         />
       )}
-      {status === "done" && results.length === 0 && (
+      {status === "done" && results.length === 0 && loadFailed && (
+        <EmptyState
+          art="map"
+          title="Couldn't load parking for this area yet"
+          description="Parking here comes from OpenStreetMap, and its public servers are busy right now. Try again in a moment."
+          action={
+            <Button
+              onClick={() => {
+                const last = lastSearch.current;
+                if (last?.kind === "ai") void runAi(last.q);
+                else if (last) void runStructured(last.f, last.center, last.opts);
+              }}
+            >
+              <RefreshCwIcon /> Try again
+            </Button>
+          }
+        />
+      )}
+      {status === "done" && results.length === 0 && !loadFailed && (
         <EmptyState
           art="search"
           title="No parking matches yet"

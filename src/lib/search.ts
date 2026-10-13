@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { rankLocations } from "@/lib/ai/recommend";
+import { ensureCoverageAround } from "@/lib/coverage";
 import type { NearbyLocation, RankedLocation, SearchFilters, UserPreferences } from "@/lib/types";
 
 export const DEFAULT_FILTERS: SearchFilters = {
@@ -26,7 +27,9 @@ export async function searchParking(
   filters: SearchFilters & { lat: number; lng: number },
   prefs: UserPreferences = {},
   limit = 40,
-): Promise<{ results: RankedLocation[]; widened: boolean }> {
+): Promise<{ results: RankedLocation[]; widened: boolean; coverage: { imported: number; failed: boolean } }> {
+  // Anywhere outside the seeded data: pull this area's parking from OpenStreetMap first.
+  const coverage = await ensureCoverageAround(filters.lat, filters.lng);
   const run = async (radius: number) => {
     const { data, error } = await supabase.rpc("nearby_locations", {
       p_lat: filters.lat,
@@ -52,7 +55,7 @@ export async function searchParking(
     rows = await run(Math.min(8000, filters.radius_m * 3));
     widened = rows.length > 0;
   }
-  return { results: rankLocations(rows, filters, prefs), widened };
+  return { results: rankLocations(rows, filters, prefs), widened, coverage: { imported: coverage.imported, failed: coverage.failed } };
 }
 
 /** PostgREST returns numerics as strings; normalise once here. */
@@ -62,7 +65,8 @@ function normalizeRow(r: NearbyLocation): NearbyLocation {
     hourly_price: Number(r.hourly_price),
     rating: r.rating === null ? null : Number(r.rating),
     predicted_rate: Number(r.predicted_rate),
-    free_probability: Number(r.free_probability),
+    // A model can't promise certainty: never claim more than 99%.
+    free_probability: Math.min(0.99, Number(r.free_probability)),
     distance_m: Number(r.distance_m),
   };
 }
