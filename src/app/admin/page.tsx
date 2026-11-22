@@ -1,5 +1,6 @@
 import { BanIcon, CalendarCheckIcon, CameraIcon, DollarSignIcon, UserPlusIcon, UserXIcon } from "lucide-react";
 import type { Metadata } from "next";
+import { FeedbackSummaryPanel } from "@/components/ai/feedback-summary";
 import { AdminCharts } from "@/components/admin/admin-charts";
 import { AdminLiveMap, BookingsTable, InsightsPanel, UsersTable, type AdminBooking, type AdminUser } from "@/components/admin/admin-panels";
 import { AdminTabs } from "@/components/admin/admin-tabs";
@@ -58,7 +59,8 @@ export default async function AdminPage() {
 
       <AdminTabs
         panels={[
-          { value: "insights", label: "AI insights", content: <InsightsPanel initial={insight ?? null} /> },
+          { value: "insights", label: "Daily AI report", content: <InsightsPanel initial={insight ?? null} /> },
+          { value: "feedback", label: "Customer feedback", content: <FeedbackSummaryPanel /> },
           {
             value: "overview",
             label: "Occupancy & revenue",

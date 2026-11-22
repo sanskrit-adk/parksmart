@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { AccessibilityIcon, FootprintsIcon, SparklesIcon, StarIcon, UmbrellaIcon, ZapIcon } from "lucide-react";
+import { AccessibilityIcon, CarIcon, FootprintsIcon, MapPinIcon, SparklesIcon, StarIcon, UmbrellaIcon, ZapIcon } from "lucide-react";
 import Link from "next/link";
 import { AiPickBadge, AvailabilityBadge, PredictionPill } from "@/components/parking/availability";
 import { FavoriteButton } from "@/components/parking/favorite-button";
@@ -17,6 +17,7 @@ export function LocationCard({
   durationHours,
   onHover,
   bookingQuery,
+  originName,
 }: {
   location: RankedLocation;
   selected?: boolean;
@@ -24,6 +25,8 @@ export function LocationCard({
   durationHours: number;
   onHover?: (id: string | null) => void;
   bookingQuery?: string;
+  /** What distances are measured from ("you", a destination name…). */
+  originName?: string;
 }) {
   return (
     <motion.article
@@ -70,21 +73,34 @@ export function LocationCard({
         </div>
       </div>
 
-      <p className="mt-2 flex items-start gap-1.5 text-sm text-foreground/90">
-        <SparklesIcon className="mt-0.5 size-3.5 shrink-0 text-teal-strong" aria-hidden />
-        <span>{l.reason}</span>
-      </p>
+      {l.ai_pick ? (
+        <div className="mt-2 rounded-xl bg-accent/70 px-3 py-2 text-sm text-accent-foreground">
+          <p className="flex items-center gap-1.5 text-xs font-semibold tracking-wide uppercase">
+            <SparklesIcon className="size-3.5" aria-hidden /> Why we recommend it
+          </p>
+          <p className="mt-0.5">{l.explanation || l.reason}</p>
+        </div>
+      ) : (
+        <p className="mt-2 flex items-start gap-1.5 text-sm text-foreground/90" title={l.explanation}>
+          <SparklesIcon className="mt-0.5 size-3.5 shrink-0 text-teal-strong" aria-hidden />
+          <span>{l.reason}</span>
+        </p>
+      )}
+
+      <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 rounded-xl border border-dashed p-2.5 text-xs sm:grid-cols-4">
+        <Fact label={`From ${originName && originName !== "you" ? "destination" : "you"}`} icon={MapPinIcon} value={distance(l.distance_m)} />
+        <Fact label="Walking time" icon={FootprintsIcon} value={`${l.walk_minutes} min`} />
+        <Fact label="Predicted availability" icon={SparklesIcon} value={`${Math.round(l.free_probability * 100)}%`} predicted />
+        <Fact label="Est. free at arrival" icon={CarIcon} value={`~${l.predicted_free_spaces} of ${l.total_spots}`} predicted />
+      </dl>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <PredictionPill probability={l.free_probability} compact />
+        <PredictionPill probability={l.free_probability} />
         <AvailabilityBadge available={l.available_now} total={l.total_spots} mode={l.availability_mode} className="relative z-10" />
-        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-          <FootprintsIcon className="size-3.5" aria-hidden /> {l.walk_minutes} min · {distance(l.distance_m)}
-        </span>
       </div>
 
       <div className="mt-3 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-1.5 text-muted-foreground">
           {l.covered && <Amenity icon={UmbrellaIcon} label="Covered" />}
           {l.ev_charging && <Amenity icon={ZapIcon} label="EV charging" />}
           {l.accessible && <Amenity icon={AccessibilityIcon} label="Accessible" />}
@@ -98,6 +114,21 @@ export function LocationCard({
         </Link>
       </div>
     </motion.article>
+  );
+}
+
+function Fact({ label, value, icon: Icon, predicted }: { label: string; value: string; icon: typeof ZapIcon; predicted?: boolean }) {
+  return (
+    <div className="min-w-0">
+      <dt className="flex items-center gap-1 text-muted-foreground">
+        <Icon className="size-3 shrink-0" aria-hidden />
+        <span className="truncate">{label}</span>
+      </dt>
+      <dd className="mt-0.5 flex items-center gap-1 font-semibold tabular-nums">
+        {value}
+        {predicted && <span className="text-[10px] font-medium text-teal-strong" title="ML prediction, not a live count">· predicted</span>}
+      </dd>
+    </div>
   );
 }
 

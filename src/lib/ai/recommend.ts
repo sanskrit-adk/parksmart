@@ -54,8 +54,10 @@ export function rankLocations(
       score: Math.round(score * 1000) / 1000,
       ai_pick: false,
       reason: "",
+      explanation: "",
       walk_minutes: walk,
       estimated_total: total,
+      predicted_free_spaces: Math.max(0, Math.round(r.total_spots * (1 - Number(r.predicted_rate)))),
     };
   });
 
@@ -72,6 +74,16 @@ export function rankLocations(
       maxTotal: filters.max_total_price,
       wantsCovered: Boolean(prefs.prefer_covered || filters.covered),
       wantsEv: Boolean(prefs.prefer_ev || filters.ev_charging),
+    });
+    r.explanation = explainFull(r, {
+      isClosest: r.distance_m === minDist,
+      isCheapest: Number(r.hourly_price) === minPrice && maxPrice > minPrice,
+      isBestAvailability: Number(r.free_probability) === maxProb,
+      wantsCovered: Boolean(prefs.prefer_covered || filters.covered),
+      wantsEv: Boolean(prefs.prefer_ev || filters.ev_charging),
+      wantsAccessible: Boolean(prefs.need_accessible || filters.accessible),
+      maxTotal: filters.max_total_price,
+      medianPrice: median(prices),
     });
   }
 
@@ -120,4 +132,61 @@ function explain(
   if (r.is_open === false) extras.push("closed at that time");
 
   return `${lead}${priceClause}${availClause}${extras.length ? ` · ${extras.join(", ")}` : ""}`;
+}
+
+function median(xs: number[]) {
+  const s = [...xs].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+/**
+ * Template explanation in plain English, e.g. "Recommended because it offers an
+ * affordable price, is close to your destination and has a high predicted
+ * availability." Used directly when no LLM is configured, and as the factual
+ * grounding the GenAI explainer rewrites.
+ */
+function explainFull(
+  r: RankedLocation,
+  ctx: {
+    isClosest: boolean;
+    isCheapest: boolean;
+    isBestAvailability: boolean;
+    wantsCovered: boolean;
+    wantsEv: boolean;
+    wantsAccessible: boolean;
+    maxTotal: number | null;
+    medianPrice: number;
+  },
+) {
+  const price = Number(r.hourly_price);
+  const prob = Number(r.free_probability);
+  const pros: string[] = [];
+  const cons: string[] = [];
+
+  if (price === 0) pros.push("it is free to park");
+  else if (ctx.isCheapest) pros.push(`it has the lowest price nearby (${money(price)}/hr)`);
+  else if (price <= ctx.medianPrice) pros.push(`it offers an affordable price (${money(price)}/hr, at or below the local median)`);
+  else cons.push(`it costs more than most nearby options (${money(price)}/hr)`);
+
+  if (ctx.isClosest) pros.push(`it is the closest option to your destination (${r.walk_minutes}-min walk)`);
+  else if (r.walk_minutes <= 6) pros.push(`it is close to your destination (${r.walk_minutes}-min walk)`);
+  else if (r.walk_minutes > 12) cons.push(`it is a ${r.walk_minutes}-minute walk`);
+
+  if (prob >= 0.7) pros.push(`it has ${ctx.isBestAvailability ? "the highest" : "a high"} predicted availability (${percent(prob)} chance of a free space when you arrive)`);
+  else if (prob >= 0.4) cons.push(`its predicted availability is moderate (${percent(prob)})`);
+  else cons.push(`it is likely to be full when you arrive (${percent(prob)} predicted availability)`);
+
+  if (ctx.wantsCovered && r.covered) pros.push("it is covered as you asked");
+  if (ctx.wantsEv && r.ev_charging) pros.push("it has EV charging");
+  if (ctx.wantsAccessible && r.accessible) pros.push("it is wheelchair accessible");
+  if (ctx.maxTotal && r.estimated_total <= ctx.maxTotal) pros.push(`the total of ${money(r.estimated_total)} fits your ${money(ctx.maxTotal, { compact: true })} budget`);
+  if (ctx.maxTotal && r.estimated_total > ctx.maxTotal) cons.push(`the total of ${money(r.estimated_total)} is over your budget`);
+  if (r.is_open === false) cons.push("it is closed at your arrival time");
+
+  const list = (xs: string[]) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+  const lead = r.ai_pick ? "This parking location is recommended because" : pros.length ? "A good option because" : "Shown as an alternative:";
+  let text = pros.length ? `${lead} ${list(pros)}.` : `${lead} it matches your search area.`;
+  if (cons.length) text += ` Keep in mind ${list(cons)}.`;
+  return text;
 }

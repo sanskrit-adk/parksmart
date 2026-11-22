@@ -203,6 +203,19 @@ Then set `CV_SERVICE_URL=https://your-cv-host` and the same `CV_SERVICE_TOKEN` i
 | 7 | **Dynamic pricing for hosts** | Listing wizard, Host → AI pricing | A deterministic baseline from real comparables within 1 km (median price), current nearby occupancy, the listing's 30-day occupancy, amenities and time-of-day demand. The LLM then reasons over the same evidence (bounded to ±25–50% of the baseline) and returns a price, range, peak/off-peak prices and plain-English reasons. **Apply suggestion** updates the listing. |
 | 8 | **AI insights** | Admin → AI insights | `admin_daily_metrics()` aggregates bookings, revenue, the 14-day revenue trend, bookings and occupancy by hour, busiest lots, no-shows, abandoned checkouts and cancellations. The LLM writes a briefing with peak hours, busiest lots, trend, flagged anomalies and recommendations. Briefings are stored in `ai_insights`. |
 
+### Week 11 iteration: Traditional ML vs Generative AI
+
+| Kind | Feature | Where | Notes |
+|---|---|---|---|
+| Traditional ML | **Availability prediction** | Find results, spot page | Predicted availability %, spaces expected free at arrival (`capacity × (1 − predicted occupancy)`), always labelled *predicted* and kept separate from the Live/Estimated count badge. |
+| Traditional ML | **Demand forecasting** | `/insights` (`GET /api/ml/demand`) | Runs `location_forecast()` over the largest places in an area and aggregates capacity-weighted demand, peak and quiet hours, expected free spaces and busiest locations. Shows a *Demonstration* label when the model history is sample/prior data. |
+| Traditional ML | **Demand-based price suggestion** | Host → listing → Overview | Scales the current price with predicted occupancy per hour (−25%…+35%) to give peak/quiet/all-day prices. The AI pricing tab adds comparables and an LLM rationale. |
+| GenAI | **Natural-language search** | Home, Find | Existing LLM parser (rule-based fallback). |
+| GenAI | **Recommendation explanation** | Find (AI Pick panel) | `POST /api/ai/explain` rewrites the ranking model's facts into 2–3 sentences comparing the pick with alternatives; template sentence from `recommend.ts` when no key. |
+| GenAI | **Customer feedback summary** | Admin → Customer feedback, Host dashboard, Host → listing → Feedback | `POST /api/ai/feedback`: themes, issues, suggestions, highlights. Uses a clearly labelled sample review set until 3+ real reviews exist; keyword-theme fallback without a key. |
+| GenAI | **Daily parking & revenue report** | Admin → Daily AI report | Now also covers availability trends (current free spaces + hourly occupancy) and feedback highlights, with KPI tiles and a downloadable text report. |
+| No AI | Registration, booking, payment, navigation | — | Plain database operations and APIs. |
+
 ---
 
 ## Live vs estimated availability

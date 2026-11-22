@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { AccessibilityIcon, ClockIcon, CrosshairIcon, RefreshCwIcon, SlidersHorizontalIcon, SparklesIcon, UmbrellaIcon, ZapIcon } from "lucide-react";
+import { AccessibilityIcon, ClockIcon, CrosshairIcon, HeartIcon, InfoIcon, RefreshCwIcon, SlidersHorizontalIcon, SparklesIcon, UmbrellaIcon, ZapIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -10,8 +10,10 @@ import { AiSearchBar } from "@/components/ai/ai-search-bar";
 import { BottomSheet, type SnapPoint } from "@/components/bottom-sheet";
 import { EmptyState } from "@/components/empty-state";
 import { FiltersPanel, type EditableFilters } from "@/components/find/filters-panel";
+import { RecommendationExplainer } from "@/components/find/recommendation-explainer";
 import { LazyParkingMap, type Bounds } from "@/components/map/lazy-map";
 import { LocationCard, LocationCardSkeleton } from "@/components/parking/location-card";
+import { useSession } from "@/components/providers";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -67,6 +69,8 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
   const router = useRouter();
   const geo = useGeolocation({ auto: !initialQuery });
   const favorites = useMemo(() => new Set(favoriteIds), [favoriteIds]);
+  const { profile } = useSession();
+  const [prefsOn, setPrefsOn] = useState(false);
 
   const [query, setQuery] = useState(initialQuery ?? "");
   const [aiInfo, setAiInfo] = useState<{ engine: "ai" | "rules"; summary: string; maxTotal: number | null } | null>(null);
@@ -308,6 +312,29 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
     applyFilters(next);
   }
 
+  /** Applies the driver's saved profile preferences as filters (ranking always weighs them for signed-in drivers). */
+  function togglePreferences() {
+    if (!profile) {
+      toast.info("Sign in to use your preferences", { description: "Save covered, EV, accessibility and walking preferences in your profile." });
+      return;
+    }
+    const p = profile.preferences ?? {};
+    if (!prefsOn && !p.prefer_covered && !p.prefer_ev && !p.need_accessible && !p.max_walk_minutes && !p.price_sensitivity) {
+      toast.info("No preferences saved yet", { description: "Set them under Profile → AI preferences." });
+      return;
+    }
+    const on = !prefsOn;
+    setPrefsOn(on);
+    applyFilters({
+      ...filters,
+      covered: on && p.prefer_covered ? true : on ? filters.covered : null,
+      ev_charging: on && p.prefer_ev ? true : on ? filters.ev_charging : null,
+      accessible: on && p.need_accessible ? true : on ? filters.accessible : null,
+      sort: on ? "best" : filters.sort,
+    });
+    if (on) toast.success("Using your saved preferences", { description: describePrefs(p) });
+  }
+
   async function useMyLocation() {
     const pos = await geo.request();
     if (!pos) {
@@ -384,13 +411,14 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
         aria-label="Sort results"
         value={filters.sort}
         onChange={(e) => applyFilters({ ...filters, sort: e.target.value as EditableFilters["sort"] })}
-        className="w-36 shrink-0 [&_select]:h-9 [&_select]:rounded-full [&_select]:text-sm"
+        className="w-48 shrink-0 [&_select]:h-9 [&_select]:rounded-full [&_select]:text-sm"
       >
-        <option value="best">Sort: AI best</option>
-        <option value="price">Sort: Price</option>
-        <option value="distance">Sort: Distance</option>
-        <option value="availability">Sort: Availability</option>
+        <option value="best">Sort: AI best match</option>
+        <option value="price">Sort: Lowest price</option>
+        <option value="distance">Sort: Closest</option>
+        <option value="availability">Sort: Highest predicted availability</option>
       </NativeSelect>
+      <Chip active={prefsOn} onClick={togglePreferences} icon={HeartIcon} label="My preferences" />
       <Chip active={!!filters.covered} onClick={() => toggleQuick("covered")} icon={UmbrellaIcon} label="Covered" />
       <Chip active={!!filters.ev_charging} onClick={() => toggleQuick("ev_charging")} icon={ZapIcon} label="EV" />
       <Chip active={!!filters.accessible} onClick={() => toggleQuick("accessible")} icon={AccessibilityIcon} label="Accessible" />
@@ -451,6 +479,27 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
           }
         />
       )}
+      {status === "done" && results.length > 0 && (
+        <>
+          <RecommendationExplainer
+            results={results}
+            request={aiInfo ? query || null : null}
+            destination={origin?.name ?? null}
+            durationHours={filters.duration_hours}
+            onShow={(id) => {
+              setSelectedId(id);
+              document.getElementById(`result-${id}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }}
+          />
+          <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+            <InfoIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+            <span>
+              <strong className="text-foreground">Predicted</strong> values are machine-learning forecasts for your arrival time. The <strong className="text-foreground">Live</strong> /{" "}
+              <strong className="text-foreground">Estimated</strong> badge shows the current count. Only Live counts are confirmed.
+            </span>
+          </p>
+        </>
+      )}
       {status === "done" &&
         results.map((r) => (
           <div key={r.id} id={`result-${r.id}`}>
@@ -461,6 +510,7 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
               durationHours={filters.duration_hours}
               onHover={setHoveredId}
               bookingQuery={bookingQuery}
+              originName={origin?.name}
             />
           </div>
         ))}
@@ -611,4 +661,14 @@ function Legend({ className, label }: { className: string; label: string }) {
       <span className={cn("size-2.5 rounded-full", className)} /> {label}
     </span>
   );
+}
+
+function describePrefs(p: NonNullable<ReturnType<typeof useSession>["profile"]>["preferences"]) {
+  const parts: string[] = [];
+  if (p.prefer_covered) parts.push("covered");
+  if (p.prefer_ev) parts.push("EV charging");
+  if (p.need_accessible) parts.push("accessible");
+  if (p.max_walk_minutes) parts.push(`≤ ${p.max_walk_minutes}-min walk`);
+  if (p.price_sensitivity) parts.push(`${p.price_sensitivity} price sensitivity`);
+  return parts.join(" · ") || "Saved preferences";
 }

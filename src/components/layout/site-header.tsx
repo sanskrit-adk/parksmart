@@ -29,6 +29,7 @@ export function SiteHeader() {
 
   const links = [
     { href: "/find", label: "Find parking" },
+    { href: "/insights", label: "Predictions" },
     { href: "/bookings", label: "My bookings", auth: true },
     { href: "/ai-opportunities", label: "AI map" },
     { href: "/host", label: profile?.role === "host" || profile?.role === "admin" ? "Host dashboard" : "List your space" },
