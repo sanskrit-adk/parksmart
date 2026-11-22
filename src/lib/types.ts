@@ -103,8 +103,12 @@ export interface RankedLocation extends NearbyLocation {
   score: number;
   ai_pick: boolean;
   reason: string;
+  /** Full-sentence explanation of why this place is (or isn't) recommended. */
+  explanation: string;
   walk_minutes: number;
   estimated_total: number;
+  /** ML forecast: spaces expected to be free at arrival = capacity × (1 − predicted occupancy). */
+  predicted_free_spaces: number;
 }
 
 /** Row returned by locations_in_bounds() — what the map draws. */

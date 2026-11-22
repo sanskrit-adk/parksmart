@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DetectionUploader } from "@/components/ai/detection-uploader";
+import { FeedbackSummaryPanel } from "@/components/ai/feedback-summary";
+import { HostDemandInsights } from "@/components/host/demand-insights";
 import { ApplyPriceSuggestion, ListingActiveToggle } from "@/components/host/host-client";
 import { ListingForm } from "@/components/host/listing-form";
 import { AvailabilityBadge } from "@/components/parking/availability";
@@ -51,7 +53,7 @@ export default async function ManageListingPage(props: PageProps<"/host/listings
       </div>
 
       <HostListingTabs
-        initial={["overview", "pricing", "camera", "edit"].includes(tab) ? tab : "overview"}
+        initial={["overview", "pricing", "camera", "feedback", "edit"].includes(tab) ? tab : "overview"}
         overview={
           <div className="grid gap-4 md:grid-cols-3">
             <Stat label="Price" value={`${money(Number(loc.hourly_price))}/hr`} />
@@ -65,6 +67,14 @@ export default async function ManageListingPage(props: PageProps<"/host/listings
                 <ForecastChart locationId={loc.id} timezone={loc.timezone} />
               </CardContent>
             </Card>
+            <Card id="demand" className="scroll-mt-24 md:col-span-3">
+              <CardHeader>
+                <CardTitle>Demand insights &amp; suggested prices</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <HostDemandInsights locationId={loc.id} timezone={loc.timezone} currentPrice={Number(loc.hourly_price)} />
+              </CardContent>
+            </Card>
           </div>
         }
         pricing={<ApplyPriceSuggestion locationId={loc.id} currentPrice={Number(loc.hourly_price)} />}
@@ -75,6 +85,13 @@ export default async function ManageListingPage(props: PageProps<"/host/listings
             </CardHeader>
             <CardContent>
               <DetectionUploader locations={[{ id: loc.id, name: loc.name }]} initialLocationId={loc.id} recent={(detections ?? []) as AiDetection[]} />
+            </CardContent>
+          </Card>
+        }
+        feedback={
+          <Card>
+            <CardContent className="pt-6">
+              <FeedbackSummaryPanel locationId={loc.id} title="What drivers say about this listing" />
             </CardContent>
           </Card>
         }

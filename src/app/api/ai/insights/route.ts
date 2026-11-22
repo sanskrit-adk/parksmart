@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ApiError, handler, ok, parseJson, requireUser } from "@/lib/api";
+import { summarizeFeedback, type FeedbackInput } from "@/lib/ai/feedback";
 import { getOpenAI, models, structured } from "@/lib/ai/openai";
 import { createAdminClient } from "@/lib/supabase/server";
 
@@ -23,6 +24,9 @@ export interface InsightSummary {
   peak_hours: string;
   busiest_lots: string[];
   revenue_trend: string;
+  /** Added in the Week 11 iteration; older stored briefings may not have these. */
+  availability_trend?: string;
+  feedback_highlights?: string[];
   anomalies: { title: string; detail: string; severity: "info" | "warning" | "critical" }[];
   recommendations: string[];
 }
@@ -44,7 +48,45 @@ export const POST = handler(async (req: Request) => {
   const { supabase, profile } = await requireUser(["admin"]);
   const { data, error } = await supabase.rpc("admin_daily_metrics", day ? { p_day: day } : {});
   if (error) throw new ApiError(500, "Could not load metrics");
-  const metrics = data as Metrics;
+  const base = data as Metrics;
+
+  // Availability right now and customer feedback from the last 7 days feed the report too.
+  const admin = createAdminClient();
+  const [{ data: locs }, { data: revs }] = await Promise.all([
+    admin.from("parking_locations").select("available_now, total_spots, availability_mode, occupancy_rate").eq("is_active", true).limit(5000),
+    admin
+      .from("reviews")
+      .select("rating, comment, created_at, location:parking_locations(name)")
+      .gte("created_at", new Date(Date.now() - 7 * 86_400_000).toISOString())
+      .order("created_at", { ascending: false })
+      .limit(100),
+  ]);
+  const rows = locs ?? [];
+  const withRate = rows.filter((l) => l.occupancy_rate !== null);
+  const availability = {
+    locations: rows.length,
+    live_locations: rows.filter((l) => l.availability_mode === "live").length,
+    spaces_free_now: rows.reduce((s, l) => s + (Number(l.available_now) || 0), 0),
+    avg_occupancy_now: withRate.length ? Math.round((withRate.reduce((s, l) => s + Number(l.occupancy_rate), 0) / withRate.length) * 1000) / 1000 : null,
+  };
+  const reviews: FeedbackInput[] = (revs ?? []).map((r) => ({
+    rating: r.rating as number,
+    comment: (r.comment as string | null) ?? null,
+    created_at: r.created_at as string,
+    location: (r.location as unknown as { name: string } | null)?.name ?? null,
+  }));
+  const feedback = await summarizeFeedback(reviews, "all ParkSmart locations, last 7 days");
+  const metrics = {
+    ...base,
+    availability,
+    feedback: {
+      real_reviews_7d: reviews.length,
+      sample: feedback.sample,
+      average_rating: feedback.summary.average_rating,
+      positives: feedback.summary.positives,
+      issues: feedback.summary.issues,
+    },
+  };
 
   let summary: InsightSummary;
   let model = "rules";
@@ -54,18 +96,22 @@ export const POST = handler(async (req: Request) => {
       system:
         "You are the operations analyst for ParkSmart, a San Francisco parking marketplace. Write a concise daily briefing for admins " +
         "from the metrics JSON. Use only the numbers provided; if data is sparse, say so plainly instead of guessing. " +
-        "Flag anomalies such as no-shows, abandoned checkouts, cancellation spikes, or revenue drops versus the 14-day trend. Hours are local (America/Los_Angeles).",
+        "Flag anomalies such as no-shows, abandoned checkouts, cancellation spikes, or revenue drops versus the 14-day trend. Hours are local (America/Los_Angeles). " +
+        "availability_trend: describe current free spaces and how occupancy moves through the day (occupancy_by_hour is observed history; availability is current). " +
+        "feedback_highlights: 2-4 short points from the feedback object; if feedback.sample is true, start the first point with 'Demo feedback:'. Write for a non-technical reader.",
       user: JSON.stringify(metrics),
       maxTokens: 900,
       schema: {
         type: "object",
         additionalProperties: false,
-        required: ["headline", "peak_hours", "busiest_lots", "revenue_trend", "anomalies", "recommendations"],
+        required: ["headline", "peak_hours", "busiest_lots", "revenue_trend", "availability_trend", "feedback_highlights", "anomalies", "recommendations"],
         properties: {
           headline: { type: "string" },
           peak_hours: { type: "string" },
           busiest_lots: { type: "array", items: { type: "string" } },
           revenue_trend: { type: "string" },
+          availability_trend: { type: "string" },
+          feedback_highlights: { type: "array", items: { type: "string" } },
           anomalies: {
             type: "array",
             items: {
@@ -88,7 +134,7 @@ export const POST = handler(async (req: Request) => {
     summary = ruleSummary(metrics);
   }
 
-  const { data: saved, error: saveError } = await createAdminClient()
+  const { data: saved, error: saveError } = await admin
     .from("ai_insights")
     .insert({ for_date: metrics.day, summary: { ...summary, metrics }, model, created_by: profile.id })
     .select("*")
@@ -97,7 +143,12 @@ export const POST = handler(async (req: Request) => {
   return ok({ insight: saved });
 });
 
-function ruleSummary(m: Metrics): InsightSummary {
+type ReportMetrics = Metrics & {
+  availability: { locations: number; live_locations: number; spaces_free_now: number; avg_occupancy_now: number | null };
+  feedback: { real_reviews_7d: number; sample: boolean; average_rating: number; positives: string[]; issues: string[] };
+};
+
+function ruleSummary(m: ReportMetrics): InsightSummary {
   const peak = [...m.bookings_by_hour].sort((a, b) => b.count - a.count)[0];
   const trend = m.revenue_trend;
   const prior = trend.slice(0, -1);
@@ -111,7 +162,24 @@ function ruleSummary(m: Metrics): InsightSummary {
     peak_hours: peak ? `Busiest start hour: ${peak.hour}:00 (${peak.count} bookings).` : "Not enough bookings to find a peak.",
     busiest_lots: m.busiest_locations.map((l) => `${l.name} — ${l.bookings} bookings`),
     revenue_trend: prior.length ? `Today $${Number(m.revenue).toFixed(2)} vs. ${prior.length}-day average $${avg.toFixed(2)}.` : "Not enough history for a trend yet.",
+    availability_trend: availabilityText(m),
+    feedback_highlights: [
+      ...(m.feedback.sample ? ["Demo feedback: fewer than 3 real reviews this week, so sample reviews were summarised."] : []),
+      `Average rating ${m.feedback.average_rating.toFixed(1)}★.`,
+      ...m.feedback.positives.slice(0, 2).map((p) => `Liked: ${p}`),
+      ...m.feedback.issues.slice(0, 2).map((p) => `Issue: ${p}`),
+    ],
     anomalies,
     recommendations: ["Add OPENAI_API_KEY to get AI-written recommendations."],
   };
+}
+
+function availabilityText(m: ReportMetrics) {
+  const a = m.availability;
+  const hours = [...m.occupancy_by_hour].map((h) => ({ hour: h.hour, rate: Number(h.rate) }));
+  const busiest = [...hours].sort((x, y) => y.rate - x.rate)[0];
+  const quietest = [...hours].sort((x, y) => x.rate - y.rate)[0];
+  const now = `${a.spaces_free_now.toLocaleString()} spaces free across ${a.locations.toLocaleString()} locations right now (${a.live_locations} with live counts)${a.avg_occupancy_now !== null ? `, ${Math.round(a.avg_occupancy_now * 100)}% average occupancy` : ""}.`;
+  const trend = busiest && quietest ? ` Over the last week occupancy peaked around ${busiest.hour}:00 (${Math.round(busiest.rate * 100)}%) and was lowest around ${quietest.hour}:00 (${Math.round(quietest.rate * 100)}%).` : " Not enough recorded occupancy history for a daily trend yet.";
+  return now + trend;
 }

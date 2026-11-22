@@ -88,3 +88,19 @@ export function LiveDot({ className }: { className?: string }) {
     </span>
   );
 }
+
+/** Marks a number as a machine-learning forecast rather than a confirmed count. */
+export function PredictedTag({ className, label = "ML prediction" }: { className?: string; label?: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span className={cn("inline-flex", className)} />}>
+        <span className="inline-flex items-center gap-1 rounded-full border border-dashed border-teal-strong/50 px-2 py-0.5 text-[11px] font-medium text-teal-strong">
+          <TrendingUpIcon className="size-3" aria-hidden /> {label}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-64">
+        A forecast from ParkSmart&apos;s availability model (location, time of day, day of week, past occupancy, bookings and nearby events). It is not a confirmed live count.
+      </TooltipContent>
+    </Tooltip>
+  );
+}

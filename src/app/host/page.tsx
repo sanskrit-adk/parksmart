@@ -2,6 +2,7 @@ import { CalendarCheckIcon, DollarSignIcon, GaugeIcon, PlusIcon, SparklesIcon, W
 import type { Metadata } from "next";
 import Link from "next/link";
 import { BookingStatusBadge } from "@/components/booking/status-badge";
+import { FeedbackSummaryPanel } from "@/components/ai/feedback-summary";
 import { EmptyState } from "@/components/empty-state";
 import { EarningsChart, ListingActiveToggle } from "@/components/host/host-client";
 import { AvailabilityBadge } from "@/components/parking/availability";
@@ -108,6 +109,9 @@ export default async function HostPage() {
                   <Link href={`/host/listings/${l.id}?tab=pricing`} className={buttonVariants({ size: "sm", variant: "outline" })}>
                     <SparklesIcon /> AI price
                   </Link>
+                  <Link href={`/host/listings/${l.id}?tab=overview#demand`} className={buttonVariants({ size: "sm", variant: "outline" })}>
+                    <GaugeIcon /> Demand
+                  </Link>
                   <Link href={`/spots/${l.id}`} className={buttonVariants({ size: "sm", variant: "ghost" })}>
                     Public page
                   </Link>
@@ -117,6 +121,12 @@ export default async function HostPage() {
           ))}
         </div>
       </section>
+
+      <Card>
+        <CardContent className="pt-6">
+          <FeedbackSummaryPanel title="Customer feedback across your listings" />
+        </CardContent>
+      </Card>
 
       <section aria-labelledby="guests-title">
         <h2 id="guests-title" className="mb-4 text-xl font-semibold">
