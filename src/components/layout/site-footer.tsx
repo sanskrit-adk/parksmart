@@ -34,6 +34,8 @@ export function SiteFooter() {
           links={[
             ["/about", "About & data sources"],
             ["/ai-opportunities", "AI opportunity map"],
+            ["/planner", "Best time to park"],
+            ["/impact", "Traffic & CO₂ impact"],
             ["/about#privacy", "Privacy"],
             ["/about#terms", "Terms & refunds"],
           ]}

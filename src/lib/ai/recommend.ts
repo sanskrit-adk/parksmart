@@ -80,6 +80,8 @@ export function rankLocations(
     sort === "price" ? [...ranked].sort((a, b) => a.hourly_price - b.hourly_price || b.score - a.score) :
     sort === "distance" ? [...ranked].sort((a, b) => a.distance_m - b.distance_m) :
     sort === "availability" ? [...ranked].sort((a, b) => b.free_probability - a.free_probability || b.score - a.score) :
+    sort === "covered" ? [...ranked].sort((a, b) => Number(b.covered) - Number(a.covered) || b.score - a.score) :
+    sort === "ev" ? [...ranked].sort((a, b) => Number(b.ev_charging) - Number(a.ev_charging) || b.score - a.score) :
     byScore;
   return sorted;
 }

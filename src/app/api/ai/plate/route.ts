@@ -3,6 +3,7 @@ import { getOpenAI, models, structured } from "@/lib/ai/openai";
 import { checkIn } from "@/lib/bookings";
 import { normalizePlate } from "@/lib/format";
 import { dataUrl, readImageField } from "@/lib/images";
+import { serverEnv } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/server";
 import type { Booking, NearbyLocation } from "@/lib/types";
 
@@ -64,7 +65,7 @@ export const POST = handler(async (req: Request) => {
 
   // A booking that can be checked in now: starts within 30 min or already running.
   const now = new Date();
-  const { data: candidates } = await createAdminClient()
+  const { data: candidates } = await supabase
     .from("bookings")
     .select("*")
     .eq("user_id", profile.id)
@@ -75,7 +76,7 @@ export const POST = handler(async (req: Request) => {
   const booking = ((candidates ?? []) as Booking[]).find((b) => !b.vehicle_plate || b.vehicle_plate === plate);
 
   if (booking && (onAccount || booking.vehicle_plate === plate)) {
-    if (!booking.vehicle_plate) await createAdminClient().from("bookings").update({ vehicle_plate: plate }).eq("id", booking.id);
+    if (!booking.vehicle_plate && serverEnv().supabaseServiceRoleKey) await createAdminClient().from("bookings").update({ vehicle_plate: plate }).eq("id", booking.id);
     const result = booking.checked_in_at ? { booking } : await checkIn(booking);
     const { data: loc } = await supabase.from("parking_locations").select("name").eq("id", booking.location_id).single();
     return ok({ status: "checked_in", plate, confidence, engine, on_account: onAccount, booking: result.booking, location_name: loc?.name ?? null });

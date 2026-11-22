@@ -2,14 +2,36 @@ import "server-only";
 
 import type Stripe from "stripe";
 import { ApiError } from "@/lib/api";
-import { simulatedPayments } from "@/lib/env";
+import { demoBookings, simulatedPayments } from "@/lib/env";
 import { dateTime, duration } from "@/lib/format";
 import { priceBreakdown, refundFor } from "@/lib/pricing";
 import { getStripe, toCents } from "@/lib/stripe";
-import { createAdminClient } from "@/lib/supabase/server";
+import { createAdminClient, createClient } from "@/lib/supabase/server";
 import type { Booking, ParkingLocation } from "@/lib/types";
 
 type Admin = ReturnType<typeof createAdminClient>;
+
+/** Runs one of the demo_* SQL functions as the signed-in user (prototype mode). */
+async function demoRpc(fn: string, args: Record<string, unknown>) {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc(fn, args).single<Booking>();
+  if (error) {
+    if (/function .* does not exist|Could not find the function/i.test(error.message)) {
+      throw new ApiError(503, "Demo bookings aren't set up: run supabase/migrations/20261122000006_demo_bookings.sql in the Supabase SQL Editor.");
+    }
+    throw new ApiError(error.code === "P0002" ? 404 : 409, error.message);
+  }
+  return data;
+}
+
+/** Releases a hold that couldn't go to checkout. */
+export async function releaseHold(bookingId: string) {
+  if (demoBookings()) {
+    await demoRpc("demo_cancel_booking", { p_booking_id: bookingId, p_refund: 0 }).catch(() => undefined);
+    return;
+  }
+  await createAdminClient().from("bookings").update({ status: "cancelled", cancelled_at: new Date().toISOString() }).eq("id", bookingId);
+}
 
 function requireStripe() {
   const stripe = getStripe();
@@ -98,6 +120,12 @@ export async function applyCheckoutSession(sessionOrId: string | Stripe.Checkout
  */
 export async function applySimulatedPayment(target: { bookingId?: string; extensionId?: string }, userId: string) {
   if (getStripe() || !simulatedPayments()) throw new ApiError(403, "Simulated payments are disabled");
+  if (demoBookings()) {
+    if (!target.bookingId) throw new ApiError(400, "Extensions are applied directly in demo mode");
+    const booking = await demoRpc("demo_confirm_booking", { p_booking_id: target.bookingId });
+    if (booking.user_id !== userId) throw new ApiError(404, "Booking not found");
+    return { applied: true as const, booking, bookingId: target.bookingId };
+  }
   const admin = createAdminClient();
   const paymentId = `sim_${crypto.randomUUID().replace(/-/g, "")}`;
   if (target.extensionId) {
@@ -174,6 +202,13 @@ export async function extendBooking(booking: Booking, location: ParkingLocation,
   const newEnd = new Date(oldEnd.getTime() + extraMinutes * 60_000);
   if (newEnd.getTime() - new Date(booking.start_time).getTime() > 24 * 3_600_000) throw new ApiError(400, "Bookings can't exceed 24 hours");
 
+  if (demoBookings()) {
+    const amount = priceBreakdown(Number(location.hourly_price), oldEnd, newEnd).subtotal;
+    await demoRpc("demo_extend_booking", { p_booking_id: booking.id, p_new_end: newEnd.toISOString(), p_amount: amount }).catch((e: ApiError) => {
+      throw /no_overlap|exclusion|conflict/i.test(e.message) ? new ApiError(409, "Your space is booked by someone else right after you. Try a shorter extension.") : e;
+    });
+    return { url: null, new_end_time: newEnd.toISOString(), amount };
+  }
   const admin = createAdminClient();
   const { count } = await admin
     .from("bookings")
@@ -227,6 +262,12 @@ export async function checkIn(booking: Pick<Booking, "id" | "status" | "start_ti
   const now = Date.now();
   if (new Date(booking.start_time).getTime() - now > 30 * 60_000) throw new ApiError(400, "Check-in opens 30 minutes before your start time");
   if (new Date(booking.end_time).getTime() <= now) throw new ApiError(400, "This booking has ended");
+  if (demoBookings()) {
+    const updated = await demoRpc("demo_check_in", { p_booking_id: booking.id }).catch((e: ApiError) => {
+      throw /no_overlap|exclusion/i.test(e.message) ? new ApiError(409, "Your space isn't free yet — the previous booking hasn't ended.") : e;
+    });
+    return { booking: updated };
+  }
   const { data, error } = await createAdminClient()
     .from("bookings")
     .update({
@@ -250,6 +291,9 @@ export async function cancelBooking(booking: Booking) {
   if (refund.amount > 0) await refundPayment(booking.stripe_payment_id, `cancel-${booking.id}`, refund.amount);
   if (booking.stripe_checkout_session_id && booking.status === "pending_payment") {
     await getStripe()?.checkout.sessions.expire(booking.stripe_checkout_session_id).catch(() => undefined);
+  }
+  if (demoBookings()) {
+    return { booking: await demoRpc("demo_cancel_booking", { p_booking_id: booking.id, p_refund: refund.amount }), refund };
   }
   const { data, error } = await createAdminClient()
     .from("bookings")

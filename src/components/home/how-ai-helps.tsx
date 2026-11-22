@@ -5,63 +5,83 @@ import {
   BarChart3Icon,
   BotIcon,
   CameraIcon,
+  DatabaseIcon,
+  FileTextIcon,
   LineChartIcon,
+  MessageSquareQuoteIcon,
   MessageSquareTextIcon,
-  ScanLineIcon,
   SparklesIcon,
   TagIcon,
 } from "lucide-react";
 
-const FEATURES = [
+type Feature = { icon: typeof BotIcon; title: string; body: string; anim: string };
+
+const GROUPS: { key: string; label: string; tagline: string; features: Feature[] }[] = [
   {
-    icon: MessageSquareTextIcon,
-    title: "Search in plain English",
-    body: "“Covered parking near SFBU for 2 hours under $15, EV charging” becomes precise filters and a geo search in under a second.",
-    anim: "type",
+    key: "ml",
+    label: "Traditional ML",
+    tagline: "Learns patterns from historical numbers to predict what happens next.",
+    features: [
+      {
+        icon: LineChartIcon,
+        title: "Availability prediction",
+        body: "Chance a space is free when you arrive, plus expected free spaces, from booking history, time of day, day of week and demand. Always shown separately from live counts.",
+        anim: "chart",
+      },
+      {
+        icon: BarChart3Icon,
+        title: "Demand forecasting",
+        body: "24-hour demand forecasts flag busy locations and peak hours for drivers and hosts.",
+        anim: "chart",
+      },
+      {
+        icon: TagIcon,
+        title: "Price suggestions",
+        body: "Hosts get a suggested hourly price from local demand, nearby rates and time of day, applied in one tap.",
+        anim: "pulse",
+      },
+      {
+        icon: CameraIcon,
+        title: "Camera spot detection",
+        body: "Computer vision counts free and occupied bays from a lot photo and flips the lot to Live.",
+        anim: "scan",
+      },
+    ],
   },
   {
-    icon: LineChartIcon,
-    title: "Availability prediction",
-    body: "Every space shows its chance of being free when you arrive, from booking history, time of day and nearby events, plus a 24-hour forecast.",
-    anim: "chart",
+    key: "genai",
+    label: "Generative AI",
+    tagline: "Understands and writes natural language.",
+    features: [
+      {
+        icon: MessageSquareTextIcon,
+        title: "Search in plain English",
+        body: "“Covered parking near SFBU for 2 hours under $15, EV charging” becomes precise search filters.",
+        anim: "type",
+      },
+      {
+        icon: SparklesIcon,
+        title: "Recommendation explanations",
+        body: "Every result says why it was picked: price, walking distance, predicted availability and your preferences.",
+        anim: "pulse",
+      },
+      {
+        icon: MessageSquareQuoteIcon,
+        title: "Feedback summaries",
+        body: "Customer reviews are condensed into what drivers like, what to fix and suggested improvements.",
+        anim: "bounce",
+      },
+      {
+        icon: FileTextIcon,
+        title: "Daily reports",
+        body: "Admins get a written daily report: bookings, revenue, busiest lots, peak hours, availability trends and feedback highlights.",
+        anim: "type",
+      },
+    ],
   },
-  {
-    icon: SparklesIcon,
-    title: "AI Pick recommendations",
-    body: "Results are ranked on price, walking distance, predicted availability, ratings and your preferences, with a one-line reason for each.",
-    anim: "pulse",
-  },
-  {
-    icon: BotIcon,
-    title: "Parking assistant",
-    body: "Chat to find, book, extend or cancel. It works against the app's real APIs and always asks you to confirm before anything is charged.",
-    anim: "bounce",
-  },
-  {
-    icon: CameraIcon,
-    title: "Camera spot detection",
-    body: "Lot operators upload a photo or camera snapshot. Computer vision counts free and occupied bays and flips the lot to Live.",
-    anim: "scan",
-  },
-  {
-    icon: ScanLineIcon,
-    title: "Plate check-in",
-    body: "Snap your licence plate on arrival and your booking starts automatically. Photos are never stored.",
-    anim: "scan",
-  },
-  {
-    icon: TagIcon,
-    title: "Dynamic pricing for hosts",
-    body: "Hosts get an hourly price suggestion from local demand, nearby rates and time of day, and can apply it with one tap.",
-    anim: "pulse",
-  },
-  {
-    icon: BarChart3Icon,
-    title: "Daily AI insights",
-    body: "Admins get a generated briefing on peak hours, busiest lots, revenue trends and anomalies such as no-shows.",
-    anim: "chart",
-  },
-] as const;
+];
+
+const NO_AI = ["Registration & login", "Booking a space", "Payment processing", "Navigation & directions"];
 
 export function HowAiHelps() {
   const reduced = useReducedMotion();
@@ -70,28 +90,53 @@ export function HowAiHelps() {
       <div className="mx-auto max-w-2xl text-center">
         <p className="text-sm font-semibold tracking-wide text-teal-strong uppercase">How AI helps</p>
         <h2 id="how-ai-title" className="mt-2 text-3xl font-bold sm:text-4xl">
-          Eight ways ParkSmart thinks ahead for you
+          Two kinds of AI, each where it fits
         </h2>
         <p className="mt-4 text-muted-foreground">
-          AI runs in every step, from the first search to check-in, and for the hosts and operators who run the spaces.
+          Traditional machine learning predicts numbers. Generative AI understands and writes language. Everyday operations stay plain, reliable software.
         </p>
       </div>
-      <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {FEATURES.map((f, i) => (
-          <motion.article
-            key={f.title}
-            initial={reduced ? false : { opacity: 0, y: 16 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "-60px" }}
-            transition={{ duration: 0.45, delay: (i % 4) * 0.07 }}
-            whileHover={reduced ? undefined : { y: -4 }}
-            className="group rounded-2xl border bg-card p-6 shadow-soft transition-shadow hover:shadow-lift"
-          >
-            <FeatureIcon icon={f.icon} anim={f.anim} reduced={!!reduced} />
-            <h3 className="mt-5 font-semibold">{f.title}</h3>
-            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{f.body}</p>
-          </motion.article>
+      <div className="mt-12 space-y-10">
+        {GROUPS.map((g) => (
+          <div key={g.key}>
+            <div className="mb-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h3 className="text-xl font-semibold">{g.label}</h3>
+              <p className="text-sm text-muted-foreground">{g.tagline}</p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {g.features.map((f, i) => (
+                <motion.article
+                  key={f.title}
+                  initial={reduced ? false : { opacity: 0, y: 16 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, margin: "-60px" }}
+                  transition={{ duration: 0.45, delay: i * 0.07 }}
+                  whileHover={reduced ? undefined : { y: -4 }}
+                  className="group rounded-2xl border bg-card p-6 shadow-soft transition-shadow hover:shadow-lift"
+                >
+                  <FeatureIcon icon={f.icon} anim={f.anim} reduced={!!reduced} />
+                  <h4 className="mt-5 font-semibold">{f.title}</h4>
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{f.body}</p>
+                </motion.article>
+              ))}
+            </div>
+          </div>
         ))}
+        <div className="rounded-2xl border border-dashed bg-muted/40 p-6">
+          <h3 className="flex items-center gap-2 font-semibold">
+            <DatabaseIcon className="size-5 text-teal-strong" aria-hidden /> No AI needed
+          </h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            These are standard database, payment and map operations. They are fast, predictable and secure without AI.
+          </p>
+          <ul className="mt-3 flex flex-wrap gap-2">
+            {NO_AI.map((n) => (
+              <li key={n} className="rounded-full border bg-card px-3 py-1 text-sm">
+                {n}
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
     </section>
   );

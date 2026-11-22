@@ -1,4 +1,5 @@
 import { HeartIcon } from "lucide-react";
+import { PersonalImpactCard } from "@/components/demo/impact";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { EmptyState } from "@/components/empty-state";
@@ -30,6 +31,7 @@ export default async function ProfilePage() {
       <ProfileDetails profile={profile} email={user.email ?? ""} />
       <VehiclesCard userId={profile.id} initial={(vehicles ?? []) as Vehicle[]} />
       <AiPreferences profile={profile} />
+      <PersonalImpactCard userId={profile.id} />
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">

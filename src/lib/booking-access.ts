@@ -1,12 +1,12 @@
 import "server-only";
 
 import { ApiError } from "@/lib/api";
-import { createAdminClient } from "@/lib/supabase/server";
+import { createReadClient } from "@/lib/supabase/server";
 import type { Booking, ParkingLocation, Profile } from "@/lib/types";
 
 /** Loads a booking the caller owns (admins may act on any booking). */
 export async function loadOwnBooking(id: string, profile: Profile) {
-  const admin = createAdminClient();
+  const admin = await createReadClient();
   const { data: booking } = await admin.from("bookings").select("*").eq("id", id).maybeSingle<Booking>();
   if (!booking || (booking.user_id !== profile.id && profile.role !== "admin")) {
     throw new ApiError(404, "Booking not found");

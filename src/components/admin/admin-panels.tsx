@@ -1,6 +1,8 @@
 "use client";
 
 import { AlertTriangleIcon, InfoIcon, OctagonAlertIcon, RefreshCwIcon, SearchIcon, SparklesIcon } from "lucide-react";
+import { FeedbackSummaryCard } from "@/components/ai/feedback-summary";
+import type { FeedbackSummary } from "@/lib/ai/feedback";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -257,6 +259,8 @@ interface Insight {
     revenue_trend: string;
     anomalies: { title: string; detail: string; severity: "info" | "warning" | "critical" }[];
     recommendations: string[];
+    availability_trend?: string;
+    feedback?: FeedbackSummary;
   };
 }
 
@@ -316,6 +320,8 @@ export function InsightsPanel({ initial }: { initial: Insight | null }) {
               )}
             </InsightCard>
           </div>
+          {insight.summary.availability_trend && <InsightCard title="Availability trend">{insight.summary.availability_trend}</InsightCard>}
+          {insight.summary.feedback && <FeedbackSummaryCard title="Customer feedback highlights" data={insight.summary.feedback} />}
           <div>
             <h3 className="mb-2 font-semibold">Anomalies</h3>
             {insight.summary.anomalies.length === 0 ? (

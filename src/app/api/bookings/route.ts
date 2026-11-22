@@ -1,8 +1,7 @@
 import { z } from "zod";
 import { ApiError, fromPgError, handler, ok, parseJson, requireUser } from "@/lib/api";
-import { createBookingCheckout } from "@/lib/bookings";
+import { createBookingCheckout, releaseHold } from "@/lib/bookings";
 import { plateSchema } from "@/lib/schemas";
-import { createAdminClient } from "@/lib/supabase/server";
 import type { Booking } from "@/lib/types";
 
 const schema = z.object({
@@ -38,7 +37,7 @@ export const POST = handler(async (req: Request) => {
     return ok({ booking, checkout_url: session.url });
   } catch (err) {
     // Don't leave the space blocked if Stripe is unreachable.
-    await createAdminClient().from("bookings").update({ status: "cancelled", cancelled_at: new Date().toISOString() }).eq("id", booking.id);
+    await releaseHold(booking.id);
     if (err instanceof ApiError) throw err;
     console.error(err);
     throw new ApiError(502, "Payment provider unavailable. Your hold was released — please try again.");

@@ -11,6 +11,7 @@
  *   npm run seed -- --dry-run         # fetch + transform, write JSON, don't touch the DB
  *   npm run seed -- --refresh         # ignore the local download cache
  *   npm run seed -- --sample-data     # ALSO add synthetic occupancy history + sample events (flagged)
+ *   npm run seed -- --spot-history    # ALSO add synthetic per-space hourly history (source='sample')
  *   npm run seed -- --skip-osm --skip-meters --skip-users
  */
 import { createClient } from "@supabase/supabase-js";
@@ -27,6 +28,7 @@ const regionArg = process.argv.find((a, i) => process.argv[i - 1] === "--region"
 const DRY = args.has("--dry-run");
 const REFRESH = args.has("--refresh");
 const SAMPLE = args.has("--sample-data");
+const SPOT_HISTORY = args.has("--spot-history");
 const CACHE_DIR = join(process.cwd(), "supabase", "seed-data");
 mkdirSync(CACHE_DIR, { recursive: true });
 
@@ -296,6 +298,41 @@ async function seedSample() {
   log(`Sample data: ${rows.length} synthetic history rows (source='sample') + 2 sample events`);
 }
 
+/** Opt-in synthetic per-space history (source='sample'). Each space gets its own
+ *  character so per-space predictions differ from the lot average. */
+async function seedSpotHistory() {
+  const sb = db();
+  const { data: locs } = await sb.from("parking_locations").select("id, type").or("source.eq.host,type.eq.garage").limit(15);
+  let seed = 7;
+  const rand = () => ((seed = (seed * 1664525 + 1013904223) % 2 ** 32) / 2 ** 32);
+  const rows: { spot_id: string; location_id: string; ts: string; busy: boolean; source: string }[] = [];
+  const hourNow = Math.floor(Date.now() / 3_600_000) * 3_600_000;
+  for (const l of locs ?? []) {
+    const { data: spots } = await sb.from("spots").select("id, label").eq("location_id", l.id).order("label");
+    (spots ?? []).forEach((sp, i, all) => {
+      // Spaces near the entrance (low index) are busier; a few are "reserved-ish" regulars.
+      const nearEntrance = 1 - i / Math.max(1, all.length - 1);
+      const regular = rand() < 0.15;
+      const bias = 0.25 * nearEntrance - 0.1 + (rand() - 0.5) * 0.2;
+      for (let hAgo = 24 * 28; hAgo > 0; hAgo--) {
+        const ts = new Date(hourNow - hAgo * 3_600_000);
+        const local = new Date(ts.toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
+        const h = local.getHours();
+        const weekend = [0, 6].includes(local.getDay());
+        const peak = Math.exp(-((h - (weekend ? 14 : 12)) ** 2) / 18) * (l.type === "garage" ? 0.75 : 0.5);
+        const p = regular && !weekend && h >= 8 && h < 18 ? 0.95 : Math.min(0.97, Math.max(0.03, 0.1 + peak + bias));
+        rows.push({ spot_id: sp.id, location_id: l.id, ts: ts.toISOString(), busy: rand() < p, source: "sample" });
+      }
+    });
+  }
+  await sb.from("spot_occupancy_history").delete().eq("source", "sample");
+  for (let i = 0; i < rows.length; i += 2000) {
+    const { error } = await sb.from("spot_occupancy_history").insert(rows.slice(i, i + 2000));
+    if (error) throw new Error(`Spot history: ${error.message}`);
+  }
+  log(`Spot history: ${rows.length} synthetic per-space rows (source='sample') across ${locs?.length ?? 0} locations`);
+}
+
 // ---------------------------------------------------------------------------
 async function main() {
   log(`Region: ${regionArg}${DRY ? " (dry run)" : ""}`);
@@ -313,6 +350,7 @@ async function main() {
   if (osm.length) await upsert(osm, "OSM locations");
   if (meters.length) await upsert(meters, "SFMTA meter locations");
   if (SAMPLE) await seedSample();
+  if (SPOT_HISTORY) await seedSpotHistory();
 
   const { data: tick, error } = await db().rpc("tick");
   if (error) console.warn("  tick() failed:", error.message);

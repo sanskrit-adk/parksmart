@@ -224,5 +224,23 @@ export interface SearchFilters {
   accessible: boolean | null;
   open_now: boolean;
   types: LocationType[] | null;
-  sort: "best" | "price" | "distance" | "availability";
+  sort: "best" | "price" | "distance" | "availability" | "covered" | "ev";
+}
+
+export type SpotPredictionBasis = "booked" | "live" | "history" | "location";
+
+export interface SpotPrediction {
+  spot_id: string;
+  label: string;
+  status: "free" | "reserved" | "occupied";
+  free_probability: number;
+  history_n: number;
+  basis: SpotPredictionBasis;
+  is_sample: boolean;
+}
+
+export interface SpotForecastPoint {
+  ts: string;
+  free_probability: number;
+  basis: SpotPredictionBasis;
 }

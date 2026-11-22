@@ -4,9 +4,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { SimulatedCheckout } from "@/components/booking/simulated-checkout";
 import { requirePageRole } from "@/lib/auth";
-import { simulatedPayments } from "@/lib/env";
+import { demoBookings, simulatedPayments } from "@/lib/env";
 import { dateTime, duration, money } from "@/lib/format";
-import { createAdminClient } from "@/lib/supabase/server";
+import { createReadClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "Checkout (simulated)" };
 
@@ -19,7 +19,7 @@ export default async function SimulatedCheckoutPage(props: PageProps<"/checkout/
   const { profile } = await requirePageRole(null, `/checkout/simulated?${bookingId ? `booking=${bookingId}` : `extension=${extensionId}`}`);
   if (!simulatedPayments() || (!bookingId && !extensionId)) notFound();
 
-  const admin = createAdminClient();
+  const admin = await createReadClient();
   let title: string;
   let lines: [string, string][];
   let amount: number;
@@ -55,8 +55,7 @@ export default async function SimulatedCheckoutPage(props: PageProps<"/checkout/
       <div className="mb-6 flex gap-3 rounded-2xl border border-filling/50 bg-filling/10 p-4 text-sm">
         <FlaskConicalIcon className="mt-0.5 size-5 shrink-0" aria-hidden />
         <p>
-          <strong>Simulated payment.</strong> Stripe isn&apos;t configured on this server, so no card is needed and no money moves. Add{" "}
-          <code>STRIPE_SECRET_KEY</code> to use real Stripe test checkout.
+          <strong>Simulated payment.</strong> {demoBookings() ? "This is a prototype demo" : "Stripe isn't configured on this server"}, so no card is needed and no money moves.
         </p>
       </div>
       <div className="rounded-2xl border bg-card p-6 shadow-soft">

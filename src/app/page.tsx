@@ -1,6 +1,7 @@
 import { ArrowRightIcon, CalendarCheckIcon, MapPinnedIcon, SparklesIcon, StarIcon } from "lucide-react";
 import Link from "next/link";
 import { Hero } from "@/components/home/hero";
+import { ImpactStrip } from "@/components/demo/impact";
 import { HowAiHelps } from "@/components/home/how-ai-helps";
 import { LiveStats, type PublicStats } from "@/components/home/live-stats";
 import { SiteFooter } from "@/components/layout/site-footer";
@@ -34,6 +35,7 @@ export default async function HomePage() {
       <Hero />
       <LiveStats stats={(stats as PublicStats | null) ?? null} />
       <HowAiHelps />
+      <ImpactStrip />
 
       <section aria-labelledby="steps-title" className="border-y bg-card/60">
         <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6">

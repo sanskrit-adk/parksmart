@@ -1,9 +1,11 @@
-import { CalendarCheckIcon, DollarSignIcon, GaugeIcon, PlusIcon, SparklesIcon, WarehouseIcon } from "lucide-react";
+import { CalendarCheckIcon, FlameIcon, TrendingUpIcon, DollarSignIcon, GaugeIcon, PlusIcon, SparklesIcon, WarehouseIcon } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { BookingStatusBadge } from "@/components/booking/status-badge";
 import { EmptyState } from "@/components/empty-state";
-import { EarningsChart, ListingActiveToggle } from "@/components/host/host-client";
+import { DemoBadge } from "@/components/demo/demo-bits";
+import { HostEventInsights } from "@/components/demo/event-alerts";
+import { DemandChart, EarningsChart, ListingActiveToggle } from "@/components/host/host-client";
 import { AvailabilityBadge } from "@/components/parking/availability";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -42,7 +44,8 @@ export default async function HostPage() {
   }
 
   const ids = locs.map((l) => l.id);
-  const [{ data: earnings }, { data: bookings }] = await Promise.all([
+  const forecastIds = ids.slice(0, 5);
+  const [{ data: earnings }, { data: bookings }, ...forecasts] = await Promise.all([
     supabase.rpc("host_earnings", { p_days: 30 }),
     supabase
       .from("bookings")
@@ -51,7 +54,9 @@ export default async function HostPage() {
       .in("status", ["upcoming", "active"])
       .order("start_time")
       .limit(20),
+    ...forecastIds.map((id) => supabase.rpc("location_forecast", { p_location_id: id, p_hours: 24 })),
   ]);
+  const demand = demandInsights(forecasts.map((f) => (f.data ?? []) as { ts: string; occupancy_rate: number }[]), locs[0]?.timezone ?? "America/Los_Angeles");
   const earn = (earnings ?? []) as { day: string; revenue: number; bookings: number }[];
   const total = earn.reduce((s, d) => s + Number(d.revenue), 0);
   const count = earn.reduce((s, d) => s + Number(d.bookings), 0);
@@ -80,6 +85,43 @@ export default async function HostPage() {
       <Card>
         <CardContent>
           {count > 0 ? <EarningsChart data={earn} /> : <EmptyState art="chart" title="No earnings yet" description="Your daily earnings appear here once drivers book." className="py-8" />}
+        </CardContent>
+      </Card>
+
+      {demand && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex flex-wrap items-center justify-between gap-2">
+              <span className="flex items-center gap-2">
+                <TrendingUpIcon className="size-5 text-teal-strong" aria-hidden /> Demand insights
+              </span>
+              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">ML prediction · not live data</span>
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Forecast from booking history, time of day and day of week{forecastIds.length < ids.length ? ` (first ${forecastIds.length} listings)` : ""}.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Insight icon={FlameIcon} label="Peak hours" value={demand.peak} />
+              <Insight icon={GaugeIcon} label="Quietest hours" value={demand.quiet} />
+              <Insight icon={SparklesIcon} label="Pricing tip" value={demand.tip} />
+            </div>
+            <DemandChart data={demand.chart} />
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex flex-wrap items-center justify-between gap-2">
+            <span>Upcoming events near your listings</span>
+            <DemoBadge />
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">Expected demand spikes and a suggested price for those hours.</p>
+        </CardHeader>
+        <CardContent>
+          <HostEventInsights listings={locs.map((l) => ({ id: l.id, name: l.name, lat: l.lat, lng: l.lng, hourly_price: Number(l.hourly_price) }))} />
         </CardContent>
       </Card>
 
@@ -165,4 +207,41 @@ function Kpi({ icon: Icon, label, value }: { icon: typeof DollarSignIcon; label:
       <p className="text-xs text-muted-foreground sm:text-sm">{label}</p>
     </div>
   );
+}
+
+function Insight({ icon: Icon, label, value }: { icon: typeof DollarSignIcon; label: string; value: string }) {
+  return (
+    <div className="rounded-xl border bg-muted/40 p-3">
+      <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <Icon className="size-3.5 text-teal-strong" aria-hidden /> {label}
+      </p>
+      <p className="mt-1 text-sm font-semibold">{value}</p>
+    </div>
+  );
+}
+
+function demandInsights(series: { ts: string; occupancy_rate: number }[][], timeZone: string) {
+  const valid = series.filter((s) => s.length);
+  if (!valid.length) return null;
+  const hourFmt = new Intl.DateTimeFormat("en-US", { hour: "numeric", timeZone });
+  const points = valid[0].map((p, i) => {
+    const vals = valid.map((s) => Number(s[i]?.occupancy_rate ?? 0));
+    return { ts: p.ts, value: (vals.reduce((a, b) => a + b, 0) / vals.length) * 100 };
+  });
+  const sorted = [...points].sort((a, b) => b.value - a.value);
+  const fmt = (p: { ts: string; value: number }) => `${hourFmt.format(new Date(p.ts))} (${Math.round(p.value)}%)`;
+  const top = sorted[0];
+  const low = sorted[sorted.length - 1];
+  const tip =
+    top.value >= 75
+      ? "High demand at peak: consider raising your price for those hours."
+      : low.value <= 30
+        ? "Quiet periods ahead: a lower off-peak price can fill empty spaces."
+        : "Demand is steady: your current price looks reasonable.";
+  return {
+    peak: sorted.slice(0, 2).map(fmt).join(", "),
+    quiet: fmt(low),
+    tip,
+    chart: points.map((p) => ({ label: hourFmt.format(new Date(p.ts)), value: Math.round(p.value), highlight: p === top })),
+  };
 }

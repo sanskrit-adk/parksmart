@@ -78,6 +78,11 @@ export function LocationCard({
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <PredictionPill probability={l.free_probability} compact />
         <AvailabilityBadge available={l.available_now} total={l.total_spots} mode={l.availability_mode} className="relative z-10" />
+        {l.predicted_rate !== null && l.predicted_rate !== undefined && (
+          <span className="inline-flex items-center rounded-full border border-dashed px-2 py-0.5 text-xs text-muted-foreground" title="ML prediction for your arrival time, not live data">
+            ~{Math.max(0, Math.round(l.total_spots * (1 - Number(l.predicted_rate))))} of {l.total_spots} expected free at arrival
+          </span>
+        )}
         <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
           <FootprintsIcon className="size-3.5" aria-hidden /> {l.walk_minutes} min · {distance(l.distance_m)}
         </span>

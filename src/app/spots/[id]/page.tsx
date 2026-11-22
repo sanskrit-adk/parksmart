@@ -3,12 +3,15 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { FeedbackSummaryCard } from "@/components/ai/feedback-summary";
 import { EmptyState } from "@/components/empty-state";
+import { DEMO_REVIEWS, summarizeFeedbackRules } from "@/lib/ai/feedback";
 import { AvailabilityBadge, PredictionPill } from "@/components/parking/availability";
 import { DirectionsButton } from "@/components/parking/directions-button";
 import { FavoriteButton } from "@/components/parking/favorite-button";
 import { ForecastChart } from "@/components/parking/forecast-chart";
 import { DistanceFromYou, ShareButton } from "@/components/parking/spot-client-bits";
+import { SpotGrid } from "@/components/parking/spot-grid";
 import { buttonVariants } from "@/components/ui/button";
 import { getSession } from "@/lib/auth";
 import { money, relativeTime, TYPE_LABEL } from "@/lib/format";
@@ -125,6 +128,14 @@ export default async function SpotPage(props: PageProps<"/spots/[id]">) {
             <ForecastChart locationId={loc.id} timezone={loc.timezone} />
           </section>
 
+          <section aria-labelledby="spaces-title" className="rounded-2xl border bg-card p-5 shadow-soft">
+            <h2 id="spaces-title" className="mb-1 font-semibold">
+              Space-by-space prediction
+            </h2>
+            <p className="mb-4 text-sm text-muted-foreground">Pick an arrival time to see which spaces are most likely free.</p>
+            <SpotGrid locationId={loc.id} timezone={loc.timezone} />
+          </section>
+
           <section aria-labelledby="details-title">
             <h2 id="details-title" className="mb-3 text-lg font-semibold">
               Details
@@ -153,6 +164,12 @@ export default async function SpotPage(props: PageProps<"/spots/[id]">) {
             <h2 id="reviews-title" className="mb-3 text-lg font-semibold">
               Reviews
             </h2>
+            <FeedbackSummaryCard
+              className="mb-4"
+              title={reviews.length ? "AI feedback summary" : "AI feedback summary (example)"}
+              showSuggestions={false}
+              data={reviews.length ? summarizeFeedbackRules(reviews) : summarizeFeedbackRules(DEMO_REVIEWS, true)}
+            />
             {reviews.length === 0 ? (
               <EmptyState art="calendar" title="No reviews yet" description="Drivers can review after a completed booking here." className="rounded-2xl border py-10" />
             ) : (

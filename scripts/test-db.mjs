@@ -192,6 +192,63 @@ await as(host);
 const earn = await q("select * from host_earnings(7)");
 check("host_earnings 7 days", earn.length === 7, earn.slice(-2));
 
+// demo booking functions (prototype mode without the service-role key)
+await as(null);
+await q("update parking_locations set opening_hours = null where id = $1", [hostLoc.id]);
+await as(driver);
+const dStart = "date_trunc('hour', now()) + interval '3 days'";
+const [d1] = await q(`select * from create_booking_hold($1, ${dStart}, ${dStart} + interval '2 hours')`, [hostLoc.id]);
+await as(other);
+err = null;
+try { await q("select * from demo_confirm_booking($1)", [d1.id]); } catch (e) { err = e.message; }
+check("demo: can't confirm someone else's booking", err?.includes("Booking not found"), err);
+await as(driver);
+const [dc] = await q("select * from demo_confirm_booking($1)", [d1.id]);
+check("demo: confirm marks paid", dc.status === "upcoming" && dc.stripe_payment_id.startsWith("sim_") && dc.hold_expires_at === null, { status: dc.status });
+err = null;
+try { await q("select * from demo_check_in($1)", [d1.id]); } catch (e) { err = e.message; }
+check("demo: early check-in rejected", err?.includes("30 minutes"), err);
+const [dx] = await q(`select * from demo_extend_booking($1, ${dStart} + interval '3 hours', 6)`, [d1.id]);
+check("demo: extend updates end and total", Number(dx.total_price) === Number(dc.total_price) + 6 && Number(dx.price_breakdown.hours) === 3, { total: dx.total_price, hours: dx.price_breakdown.hours });
+const [dn] = await q("select * from demo_cancel_booking($1, 999)", [d1.id]);
+check("demo: cancel caps refund at total", dn.status === "cancelled" && Number(dn.refund_amount) === Number(dx.total_price), { refund: dn.refund_amount });
+await as(null);
+err = null;
+try { await db.exec("set role anon"); await q("select * from demo_confirm_booking($1)", [d1.id]); } catch (e) { err = e.message; } finally { await db.exec("reset role"); }
+check("demo: anon can't call demo functions", err?.includes("permission denied"), err);
+
+// per-space prediction
+await as(null);
+const snap = await q("select snapshot_spot_occupancy() n");
+const snap2 = await q("select snapshot_spot_occupancy() n");
+check("spot snapshot is idempotent per hour", snap[0].n > 0 && snap2[0].n === 0, { first: snap[0].n, second: snap2[0].n });
+const [civic] = await q("select id from parking_locations where name='Civic Center Garage'");
+const [busySpot, quietSpot] = await q("select id from spots where location_id=$1 order by label limit 2", [civic.id]);
+// 6 weeks of history at +5h: one space always busy, the other always free.
+await q(`insert into spot_occupancy_history (spot_id, location_id, ts, busy, source)
+  select sp.id, $3, date_trunc('hour', now()) + interval '5 hours' - make_interval(days => 7 * w), sp.id = $1, 'sample'
+  from generate_series(1, 6) w, (values ($1::uuid), ($2::uuid)) sp(id)`, [busySpot.id, quietSpot.id, civic.id]);
+const at = "date_trunc('hour', now()) + interval '5 hours'";
+const [pb] = await q(`select spot_free_probability($1, ${at}) p`, [busySpot.id]);
+const [pq] = await q(`select spot_free_probability($1, ${at}) p`, [quietSpot.id]);
+check("spot history separates busy vs quiet space", Number(pq.p) - Number(pb.p) > 0.3, { busy: pb.p, quiet: pq.p });
+const grid = await q(`select * from location_spot_predictions($1, ${at})`, [civic.id]);
+check("slot grid returns every space, flags sample", grid.length === 20 && grid.every((g) => g.free_probability >= 0 && g.free_probability <= 1) && grid.find((g) => g.spot_id === busySpot.id).is_sample, grid.length);
+const sfc = await q("select * from spot_forecast($1, now(), 24)", [quietSpot.id]);
+check("spot_forecast 24 points", sfc.length === 24, sfc.length);
+const [bookedSpot] = await q("select spot_id, start_time from bookings where status in ('upcoming','active') limit 1");
+if (bookedSpot) {
+  const [pk] = await q("select * from spot_free_probability_with($1, $2::timestamptz + interval '1 minute', 0.1)", [bookedSpot.spot_id, bookedSpot.start_time]);
+  check("booked space ≈ not free", pk.basis === "booked" && Number(pk.free_probability) <= 0.05, pk);
+}
+err = null;
+try { await db.exec("set role anon"); await q("select snapshot_spot_occupancy()"); } catch (e) { err = e.message; } finally { await db.exec("reset role"); }
+check("anon can't snapshot", err?.includes("permission denied"), err);
+await db.exec("set role anon");
+const [anonSp] = await q(`select spot_free_probability($1, ${at}) p`, [quietSpot.id]);
+await db.exec("reset role");
+check("anon can read spot prediction", anonSp.p !== null, anonSp);
+
 console.log(process.exitCode ? "\nSOME CHECKS FAILED" : "\nALL CHECKS PASSED");
 
 

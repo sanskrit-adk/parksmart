@@ -36,5 +36,13 @@ export const hasAI = () => Boolean(secret(process.env.OPENAI_API_KEY));
  * Never enable this on a public deployment.
  */
 export const simulatedPayments = () =>
-  !secret(process.env.STRIPE_SECRET_KEY) && (process.env.NODE_ENV !== "production" || process.env.ALLOW_SIMULATED_PAYMENTS === "true");
+  !secret(process.env.STRIPE_SECRET_KEY) &&
+  (process.env.NODE_ENV !== "production" || process.env.ALLOW_SIMULATED_PAYMENTS === "true" || demoBookings());
+
+/**
+ * Prototype mode: no service-role key and no Stripe. Booking writes go through
+ * the demo_* SQL functions (migration 006) as the signed-in user, and payments
+ * are simulated.
+ */
+export const demoBookings = () => !secret(process.env.SUPABASE_SERVICE_ROLE_KEY) && !secret(process.env.STRIPE_SECRET_KEY);
 export const hasStripe = () => Boolean(secret(process.env.STRIPE_SECRET_KEY));

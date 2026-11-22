@@ -24,6 +24,11 @@ export async function createClient() {
   });
 }
 
+/** Service-role client when configured, otherwise the signed-in user's client (RLS applies). */
+export async function createReadClient() {
+  return serverEnv().supabaseServiceRoleKey ? createAdminClient() : await createClient();
+}
+
 /**
  * Service-role client. Bypasses RLS — only use after the route has checked
  * who the caller is and what they may do.

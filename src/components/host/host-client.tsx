@@ -69,3 +69,18 @@ export function ApplyPriceSuggestion({ locationId, currentPrice }: { locationId:
     />
   );
 }
+
+/** Predicted demand (occupancy %) for the next 24 hours, averaged over the host's listings. */
+export function DemandChart({ data }: { data: { label: string; value: number; highlight?: boolean }[] }) {
+  return (
+    <SeriesChart
+      kind="bar"
+      title="Predicted demand, next 24 hours (% of spaces occupied)"
+      valueLabel="Predicted occupancy"
+      data={data}
+      format={(v) => `${Math.round(v)}%`}
+      yMax={100}
+      height={220}
+    />
+  );
+}

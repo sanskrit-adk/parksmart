@@ -30,6 +30,8 @@ export function SiteHeader() {
   const links = [
     { href: "/find", label: "Find parking" },
     { href: "/bookings", label: "My bookings", auth: true },
+    { href: "/planner", label: "Planner" },
+    { href: "/impact", label: "Impact" },
     { href: "/ai-opportunities", label: "AI map" },
     { href: "/host", label: profile?.role === "host" || profile?.role === "admin" ? "Host dashboard" : "List your space" },
     ...(profile?.role === "admin" ? [{ href: "/admin", label: "Admin" }] : []),

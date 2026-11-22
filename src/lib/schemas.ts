@@ -13,7 +13,7 @@ export const filtersSchema = z.object({
   accessible: z.boolean().nullable().default(null),
   open_now: z.boolean().default(false),
   types: z.array(z.enum(["garage", "lot", "street", "private"])).nullable().default(null),
-  sort: z.enum(["best", "price", "distance", "availability"]).default("best"),
+  sort: z.enum(["best", "price", "distance", "availability", "covered", "ev"]).default("best"),
 });
 
 const time = /^([01]\d|2[0-3]):[0-5]\d$/;

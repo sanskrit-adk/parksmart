@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { AddressSearch } from "@/components/address-search";
 import { AiSearchBar } from "@/components/ai/ai-search-bar";
 import { BottomSheet, type SnapPoint } from "@/components/bottom-sheet";
+import { EventAlertBanner } from "@/components/demo/event-alerts";
 import { EmptyState } from "@/components/empty-state";
 import { FiltersPanel, type EditableFilters } from "@/components/find/filters-panel";
 import { LazyParkingMap, type Bounds } from "@/components/map/lazy-map";
@@ -384,12 +385,14 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
         aria-label="Sort results"
         value={filters.sort}
         onChange={(e) => applyFilters({ ...filters, sort: e.target.value as EditableFilters["sort"] })}
-        className="w-36 shrink-0 [&_select]:h-9 [&_select]:rounded-full [&_select]:text-sm"
+        className="w-44 shrink-0 [&_select]:h-9 [&_select]:rounded-full [&_select]:text-sm"
       >
         <option value="best">Sort: AI best</option>
-        <option value="price">Sort: Price</option>
-        <option value="distance">Sort: Distance</option>
-        <option value="availability">Sort: Availability</option>
+        <option value="price">Sort: Lowest price</option>
+        <option value="distance">Sort: Closest</option>
+        <option value="availability">Sort: Most likely free</option>
+        <option value="covered">Sort: Covered first</option>
+        <option value="ev">Sort: EV charging first</option>
       </NativeSelect>
       <Chip active={!!filters.covered} onClick={() => toggleQuick("covered")} icon={UmbrellaIcon} label="Covered" />
       <Chip active={!!filters.ev_charging} onClick={() => toggleQuick("ev_charging")} icon={ZapIcon} label="EV" />
@@ -491,6 +494,7 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
           {chips}
         </div>
         <div className="flex-1 overflow-y-auto p-4">
+          <EventAlertBanner className="mb-3" />
           {summaryLine}
           <div className="mt-3">{list}</div>
         </div>
@@ -559,6 +563,7 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
       {/* Mobile results sheet */}
       <BottomSheet snap={snap} onSnapChange={setSnap} header={summaryLine}>
         <div className="mb-3">{chips}</div>
+        <EventAlertBanner className="mb-3" />
         {list}
       </BottomSheet>
 
