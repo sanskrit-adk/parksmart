@@ -9,6 +9,9 @@ import { Button } from "@/components/ui/button";
 import { geocode, type GeocodeResult } from "@/lib/geocode";
 import { cn } from "@/lib/utils";
 
+/** Suggestions already fetched this visit, so retyping or backspacing is instant. */
+const suggestionCache = new Map<string, GeocodeResult[]>();
+
 /** Words that mean "this is a request, not a place" — no place suggestions for those. */
 const REQUEST_WORDS = /\b(under|below|cheap|cheapest|closest|nearest|covered|ev|charging|accessible|wheelchair|tonight|tomorrow|hours?|hrs?|minutes?|mins?)\b|\$/i;
 
@@ -62,6 +65,7 @@ export function AiSearchBar({
   const [active, setActive] = useState(-1);
   const [suggesting, setSuggesting] = useState(false);
   const skipNext = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const part = placePart(value);
   const shown = open && part && suggestFor === part ? suggestions : [];
 
@@ -72,12 +76,24 @@ export function AiSearchBar({
       return;
     }
     if (!part) return;
+    const cacheKey = `${part.toLowerCase()}|${proximity ? `${proximity.lat.toFixed(2)},${proximity.lng.toFixed(2)}` : ""}`;
+    const cached = suggestionCache.get(cacheKey);
+    if (cached) {
+      // Sync with an external cache, not derived state.
+      queueMicrotask(() => {
+        setSuggestions(cached);
+        setSuggestFor(part);
+        setActive(-1);
+      });
+      return;
+    }
     const ctrl = new AbortController();
     const t = setTimeout(async () => {
       setSuggesting(true);
       try {
         const r = await geocode(part, { proximity: proximity ?? undefined, limit: 5, signal: ctrl.signal });
         if (ctrl.signal.aborted) return;
+        suggestionCache.set(cacheKey, r);
         setSuggestions(r);
         setSuggestFor(part);
         setActive(-1);
@@ -98,6 +114,7 @@ export function AiSearchBar({
     skipNext.current = true;
     setValue(label);
     setOpen(false);
+    inputRef.current?.blur(); // close the phone keyboard so the map is visible
     if (onPlaceSelect) onPlaceSelect(r);
     else router.push(`/find?q=${encodeURIComponent(label)}`);
   }
@@ -117,7 +134,11 @@ export function AiSearchBar({
   function submit(e?: React.FormEvent) {
     e?.preventDefault();
     if (active >= 0 && shown[active]) return choose(shown[active]);
+    // A plain address with suggestions ready: use the top match directly (instant pin, no AI round-trip).
+    const typed = value.trim();
+    if (/^\d+[a-z]?\s+\S/i.test(typed) && part === typed && suggestFor === part && suggestions[0]) return choose(suggestions[0]);
     setOpen(false);
+    inputRef.current?.blur();
     const q = value.trim();
     if (q.length < 2) {
       toast.error("Describe where you want to park", { description: `Try: “${EXAMPLE_QUERIES[0]}”` });
@@ -141,6 +162,7 @@ export function AiSearchBar({
         <SparklesIcon className={cn("shrink-0 text-teal-strong", size === "lg" ? "size-5" : "size-4")} aria-hidden />
         <div className="relative min-w-0 flex-1">
           <input
+            ref={inputRef}
             id="ai-search"
             value={value}
             onChange={(e) => {

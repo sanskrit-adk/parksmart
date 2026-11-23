@@ -34,12 +34,6 @@ export async function searchParking(
   // Anywhere outside the seeded data: pull this area's parking from OpenStreetMap.
   // The import can take 20s+, so don't block the search on it: wait a short budget,
   // then let it finish in the background (after()) and tell the client to refresh.
-  const coverageTask = ensureCoverageAround(filters.lat, filters.lng);
-  const coverage = await Promise.race([
-    coverageTask,
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), coverageBudgetMs)),
-  ]);
-  if (!coverage) after(() => coverageTask.then(() => undefined));
   const run = async (radius: number) => {
     const { data, error } = await supabase.rpc("nearby_locations", {
       p_lat: filters.lat,
@@ -58,7 +52,16 @@ export async function searchParking(
     return ((data ?? []) as NearbyLocation[]).map(normalizeRow);
   };
 
-  let rows = await run(filters.radius_m);
+  // Query what we already have while the coverage check runs; redo it only if new parking was imported.
+  const firstRun = run(filters.radius_m);
+  firstRun.catch(() => {});
+  const coverageTask = ensureCoverageAround(filters.lat, filters.lng);
+  const coverage = await Promise.race([
+    coverageTask,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), coverageBudgetMs)),
+  ]);
+  if (!coverage) after(() => coverageTask.then(() => undefined));
+  let rows = coverage?.fetched && coverage.imported > 0 ? await run(filters.radius_m) : await firstRun;
   let widened = false;
   // Nothing close by? Look a bit further rather than showing an empty screen.
   if (rows.length === 0 && filters.radius_m < 8000) {

@@ -23,6 +23,9 @@ export const maxDuration = 60;
  */
 export const POST = handler(async (req: Request) => {
   const body = await parseJson(req, schema);
+  // The auth lookup doesn't depend on the query: run it alongside parsing + geocoding.
+  const sessionTask = getSession();
+  sessionTask.catch(() => {});
   const { filters: parsed, engine } = await parseSearchQuery(body.query);
   // Precise browser position if shared, otherwise the visitor's approximate (IP) location.
   const gps = body.lat != null && body.lng != null ? { lat: body.lat, lng: body.lng } : null;
@@ -49,7 +52,7 @@ export const POST = handler(async (req: Request) => {
     lng: center.lng,
   };
 
-  const { supabase, profile } = await getSession();
+  const { supabase, profile } = await sessionTask;
   const { results, widened, coverage } = await searchParking(supabase, { ...filters, lat: center.lat, lng: center.lng }, profile?.preferences);
 
   return ok({

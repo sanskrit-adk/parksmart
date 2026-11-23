@@ -504,7 +504,8 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
 
   const list = (
     <div ref={listRef} className="space-y-3">
-      {status === "loading" && Array.from({ length: 4 }, (_, i) => <LocationCardSkeleton key={i} />)}
+      {/* Keep the previous results on screen (dimmed) while a new search runs; skeletons only on first load. */}
+      {status === "loading" && results.length === 0 && Array.from({ length: 4 }, (_, i) => <LocationCardSkeleton key={i} />)}
       {status === "error" && (
         <EmptyState
           art="map"
@@ -555,9 +556,9 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
           }
         />
       )}
-      {status === "done" &&
+      {(status === "done" || (status === "loading" && results.length > 0)) &&
         results.map((r) => (
-          <div key={r.id} id={`result-${r.id}`}>
+          <div key={r.id} id={`result-${r.id}`} className={cn("transition-opacity", status === "loading" && "pointer-events-none opacity-50")}>
             <LocationCard
               location={r}
               selected={selectedId === r.id}
