@@ -39,12 +39,16 @@ interface AiResponse {
 interface Coverage {
   imported: number;
   failed: boolean;
+  /** This area's parking is still importing in the background; refresh shortly. */
+  pending?: boolean;
 }
 
 /** Tells the user when a new area's parking was just loaded (or couldn't be). */
 function reportCoverage(c: Coverage | undefined, resultCount: number) {
   if (!c) return;
-  if (c.imported > 0) {
+  if (c.pending) {
+    toast.loading("Loading more parking for this area…", { id: "coverage", description: "Results will update automatically." });
+  } else if (c.imported > 0) {
     toast.success(`Loaded ${c.imported} parking places for this area`, { description: "From OpenStreetMap. Prices and capacity are estimates where not published." });
   } else if (c.failed && resultCount === 0) {
     toast.error("Couldn't load parking for this area right now", { description: "OpenStreetMap is busy. Try again in a minute." });
@@ -113,13 +117,68 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
     listRef.current?.scrollTo({ top: 0 });
   }, []);
 
+  // Only the newest search may update the screen; older in-flight ones are cancelled.
+  const searchCtl = useRef<AbortController | null>(null);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const newSearch = useCallback(() => {
+    searchCtl.current?.abort();
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    const ctl = new AbortController();
+    searchCtl.current = ctl;
+    return ctl.signal;
+  }, []);
+  useEffect(() => () => {
+    searchCtl.current?.abort();
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+  }, []);
+
+  /** A new area is still importing on the server: re-query it quietly until it's in. */
+  const refreshWhenLoaded = useCallback(
+    (f: EditableFilters & { max_total_price: number | null }, center: { lat: number; lng: number }) => {
+      const signal = searchCtl.current?.signal;
+      const wait = (ms: number) => new Promise<void>((resolve) => (refreshTimer.current = setTimeout(resolve, ms)));
+      void (async () => {
+        try {
+          for (let attempt = 1; attempt <= 4; attempt++) {
+            await wait(attempt === 1 ? 4000 : 5000);
+            if (signal?.aborted) return;
+            const res = await api<{ results: RankedLocation[]; widened: boolean; coverage?: Coverage }>("/api/search", {
+              json: { ...f, lat: center.lat, lng: center.lng },
+              signal,
+              timeoutMs: 30_000,
+            });
+            if (signal?.aborted) return;
+            if (res.results.length) {
+              setResults(res.results);
+              setWidened(res.widened);
+            }
+            if (res.coverage?.pending && attempt < 4) continue;
+            toast.dismiss("coverage");
+            if (res.coverage) reportCoverage({ ...res.coverage, pending: false }, res.results.length);
+            setLoadFailed(Boolean(res.coverage?.failed && res.results.length === 0));
+            return;
+          }
+        } catch {
+          toast.dismiss("coverage");
+        }
+      })();
+    },
+    [],
+  );
+
   const runAi = useCallback(
     async (q: string) => {
       setQuery(q);
       setStatus("loading");
       setError(null);
+      const signal = newSearch();
       try {
-        const res = await api<AiResponse>("/api/ai/search", { json: { query: q, lat: geo.position?.lat ?? null, lng: geo.position?.lng ?? null } });
+        const res = await api<AiResponse>("/api/ai/search", {
+          json: { query: q, lat: geo.position?.lat ?? null, lng: geo.position?.lng ?? null },
+          signal,
+          timeoutMs: 30_000,
+        });
+        if (signal.aborted) return;
         const f = res.filters;
         setFilters({
           radius_m: f.radius_m,
@@ -144,18 +203,37 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
         showResults(res.results, center);
         reportCoverage(res.coverage, res.results.length);
         setLoadFailed(Boolean(res.coverage?.failed && res.results.length === 0));
+        if (res.coverage?.pending) {
+          refreshWhenLoaded(
+            {
+              radius_m: f.radius_m,
+              duration_hours: f.duration_hours,
+              arrive_at: f.arrive_at,
+              max_price_per_hour: f.max_price_per_hour,
+              covered: f.covered,
+              ev_charging: f.ev_charging,
+              accessible: f.accessible,
+              open_now: f.open_now,
+              types: f.types,
+              sort: f.sort,
+              max_total_price: f.max_total_price,
+            },
+            center,
+          );
+        }
         lastSearch.current = { kind: "ai", q };
         const url = new URL(window.location.href);
         url.searchParams.set("q", q);
         window.history.replaceState(null, "", url);
       } catch (e) {
+        if (signal.aborted) return;
         setStatus("error");
         setSnap("half");
         setError((e as Error).message);
         toast.error("Search failed", { description: (e as Error).message });
       }
     },
-    [geo.position, showResults],
+    [geo.position, showResults, newSearch, refreshWhenLoaded],
   );
 
   const runStructured = useCallback(
@@ -164,23 +242,29 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
       setError(null);
       setOrigin(center);
       if (!opts.keepAi) setAiInfo((a) => (a ? { ...a, summary: `Parking near ${center.name}` } : null));
+      const signal = newSearch();
       try {
         const res = await api<{ results: RankedLocation[]; widened: boolean; coverage?: Coverage }>("/api/search", {
           json: { ...f, lat: center.lat, lng: center.lng, max_total_price: maxTotal },
+          signal,
+          timeoutMs: 30_000,
         });
+        if (signal.aborted) return;
         setWidened(res.widened);
         showResults(res.results, center);
         reportCoverage(res.coverage, res.results.length);
         setLoadFailed(Boolean(res.coverage?.failed && res.results.length === 0));
+        if (res.coverage?.pending) refreshWhenLoaded({ ...f, max_total_price: maxTotal }, center);
         lastSearch.current = { kind: "structured", f, center, opts };
       } catch (e) {
+        if (signal.aborted) return;
         setStatus("error");
         setSnap("half");
         setError((e as Error).message);
         toast.error("Couldn't load parking", { description: (e as Error).message });
       }
     },
-    [maxTotal, showResults],
+    [maxTotal, showResults, newSearch, refreshWhenLoaded],
   );
 
   /** City-level location from the network when GPS isn't available. */
