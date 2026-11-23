@@ -26,10 +26,13 @@ export async function structured<T>(opts: {
   user: string | OpenAI.Chat.Completions.ChatCompletionContentPart[];
   model?: string;
   maxTokens?: number;
+  /** Per-call timeout; callers with a fallback should keep this short. */
+  timeoutMs?: number;
 }): Promise<T> {
   const openai = getOpenAI();
   if (!openai) throw new Error("AI is not configured");
-  const res = await openai.chat.completions.create({
+  const res = await openai.chat.completions.create(
+    {
     model: opts.model ?? models().text,
     temperature: 0.2,
     max_completion_tokens: opts.maxTokens ?? 800,
@@ -38,7 +41,9 @@ export async function structured<T>(opts: {
       { role: "system", content: opts.system },
       { role: "user", content: opts.user },
     ],
-  });
+    },
+    opts.timeoutMs ? { timeout: opts.timeoutMs, maxRetries: 0 } : undefined,
+  );
   const content = res.choices[0]?.message?.content;
   if (!content) throw new Error("Empty AI response");
   return JSON.parse(content) as T;

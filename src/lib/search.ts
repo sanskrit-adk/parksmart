@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { after } from "next/server";
 import { rankLocations } from "@/lib/ai/recommend";
 import { ensureCoverageAround } from "@/lib/coverage";
 import type { NearbyLocation, RankedLocation, SearchFilters, UserPreferences } from "@/lib/types";
@@ -27,9 +28,18 @@ export async function searchParking(
   filters: SearchFilters & { lat: number; lng: number },
   prefs: UserPreferences = {},
   limit = 40,
-): Promise<{ results: RankedLocation[]; widened: boolean; coverage: { imported: number; failed: boolean } }> {
-  // Anywhere outside the seeded data: pull this area's parking from OpenStreetMap first.
-  const coverage = await ensureCoverageAround(filters.lat, filters.lng);
+  /** How long to wait for a new area's OpenStreetMap import before answering with what we already have. */
+  coverageBudgetMs = 3500,
+): Promise<{ results: RankedLocation[]; widened: boolean; coverage: { imported: number; failed: boolean; pending: boolean } }> {
+  // Anywhere outside the seeded data: pull this area's parking from OpenStreetMap.
+  // The import can take 20s+, so don't block the search on it: wait a short budget,
+  // then let it finish in the background (after()) and tell the client to refresh.
+  const coverageTask = ensureCoverageAround(filters.lat, filters.lng);
+  const coverage = await Promise.race([
+    coverageTask,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), coverageBudgetMs)),
+  ]);
+  if (!coverage) after(() => coverageTask.then(() => undefined));
   const run = async (radius: number) => {
     const { data, error } = await supabase.rpc("nearby_locations", {
       p_lat: filters.lat,
@@ -55,7 +65,13 @@ export async function searchParking(
     rows = await run(Math.min(8000, filters.radius_m * 3));
     widened = rows.length > 0;
   }
-  return { results: rankLocations(rows, filters, prefs), widened, coverage: { imported: coverage.imported, failed: coverage.failed } };
+  return {
+    results: rankLocations(rows, filters, prefs),
+    widened,
+    coverage: coverage
+      ? { imported: coverage.imported, failed: coverage.failed, pending: false }
+      : { imported: 0, failed: false, pending: true },
+  };
 }
 
 /** PostgREST returns numerics as strings; normalise once here. */

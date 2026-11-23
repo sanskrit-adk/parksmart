@@ -28,6 +28,8 @@ export interface ParkingMapProps {
   hoveredId?: string | null;
   highlightIds?: Set<string>;
   fitPoints?: { lat: number; lng: number }[] | null;
+  /** Pixels covered by overlays at the top (e.g. the mobile search bar), kept clear when fitting. */
+  topInset?: number;
   onSelect?: (id: string) => void;
   onBoundsChange?: (b: Bounds) => void;
   /** Extra bottom padding (px) when a sheet covers part of the map. */
@@ -244,7 +246,12 @@ export default function ParkingMap(props: ParkingMapProps) {
     const pts = props.fitPoints;
     if (!map || !pts || pts.length === 0) return;
     if (pts.length === 1) {
-      map.easeTo({ center: [pts[0].lng, pts[0].lat], zoom: 15, duration: 600 });
+      map.easeTo({
+        center: [pts[0].lng, pts[0].lat],
+        zoom: 15,
+        duration: 600,
+        padding: { top: props.topInset ?? 0, bottom: props.bottomInset ?? 0, left: 0, right: 0 },
+      });
       return;
     }
     const lngs = pts.map((p) => p.lng);
@@ -253,8 +260,8 @@ export default function ParkingMap(props: ParkingMapProps) {
       [Math.min(...lngs), Math.min(...lats)],
       [Math.max(...lngs), Math.max(...lats)],
     ];
-    map.fitBounds(bounds, { padding: { top: 60, left: 40, right: 40, bottom: 60 + (props.bottomInset ?? 0) }, maxZoom: 16, duration: 700 });
-  }, [props.fitPoints, props.bottomInset, ready]);
+    map.fitBounds(bounds, { padding: { top: 60 + (props.topInset ?? 0), left: 40, right: 40, bottom: 60 + (props.bottomInset ?? 0) }, maxZoom: 16, duration: 700 });
+  }, [props.fitPoints, props.bottomInset, props.topInset, ready]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -290,8 +297,19 @@ export default function ParkingMap(props: ParkingMapProps) {
     if (props.destination) {
       const el = document.createElement("div");
       el.setAttribute("aria-label", `Destination: ${props.destination.name ?? ""}`);
-      el.innerHTML =
-        '<svg width="34" height="44" viewBox="0 0 34 44"><path d="M17 0C7.6 0 0 7.4 0 16.6 0 29 17 44 17 44s17-15 17-27.4C34 7.4 26.4 0 17 0z" fill="#152a5c"/><circle cx="17" cy="16.5" r="7" fill="#5ee0d2"/></svg>';
+      el.className = "flex flex-col items-center";
+      el.style.zIndex = "5";
+      if (props.destination.name) {
+        // Label so the searched place is obvious among the parking clusters.
+        const label = document.createElement("span");
+        label.className = "mb-1 max-w-[180px] truncate rounded-full bg-[#152a5c] px-2.5 py-1 text-xs font-semibold text-white shadow-lg";
+        label.textContent = props.destination.name;
+        el.appendChild(label);
+      }
+      const pin = document.createElement("span");
+      pin.innerHTML =
+        '<svg width="34" height="44" viewBox="0 0 34 44" style="filter:drop-shadow(0 2px 3px rgba(0,0,0,.35))"><path d="M17 0C7.6 0 0 7.4 0 16.6 0 29 17 44 17 44s17-15 17-27.4C34 7.4 26.4 0 17 0z" fill="#152a5c"/><circle cx="17" cy="16.5" r="7" fill="#5ee0d2"/></svg>';
+      el.appendChild(pin);
       destMarkerRef.current = new gl.Marker({ element: el, anchor: "bottom" })
         .setLngLat([props.destination.lng, props.destination.lat])
         .addTo(map);

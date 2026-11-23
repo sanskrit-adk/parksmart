@@ -5,7 +5,7 @@ import { createAdminClient } from "@/lib/supabase/server";
 
 const CELL = 0.025; // degrees (~2.8 km north–south)
 const REFRESH_DAYS = 30;
-const RETRY_FAILED_MINUTES = 1;
+const RETRY_FAILED_MINUTES = 5;
 
 const cellOf = (lat: number, lng: number) => ({ i: Math.floor(lat / CELL), j: Math.floor(lng / CELL) });
 
@@ -43,6 +43,19 @@ export async function ensureCoverageAround(lat: number, lng: number): Promise<{ 
   });
   if (missing.length === 0) return { imported: 0, fetched: false, failed: false };
 
+  // Same area already importing (e.g. the client refreshing while it runs)? Share that work.
+  const key = missing.map(([k]) => k).sort().join(",");
+  const running = inflight.get(key);
+  if (running) return running;
+  const task = importCells(admin, missing).finally(() => inflight.delete(key));
+  inflight.set(key, task);
+  return task;
+}
+
+type CoverageResult = { imported: number; fetched: boolean; failed: boolean };
+const inflight = new Map<string, Promise<CoverageResult>>();
+
+async function importCells(admin: ReturnType<typeof createAdminClient>, missing: [string, { i: number; j: number }][]): Promise<CoverageResult> {
   const margin = 0.005;
   const s = Math.min(...missing.map(([, c]) => c.i)) * CELL - margin;
   const w = Math.min(...missing.map(([, c]) => c.j)) * CELL - margin;

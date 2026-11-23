@@ -14,6 +14,12 @@ interface MapboxFeature {
   properties: { name?: string; full_address?: string; place_formatted?: string; mapbox_id?: string };
 }
 
+/** Never let a slow geocoder hang a search: abort after `ms` (and on the caller's signal). */
+function withTimeout(signal: AbortSignal | undefined, ms = 6000) {
+  const t = AbortSignal.timeout(ms);
+  return signal ? AbortSignal.any([signal, t]) : t;
+}
+
 /**
  * Forward geocoding (worldwide), biased toward the user's position when known.
  * Mapbox Geocoding v6 when a token is set, otherwise Photon (OpenStreetMap). Works from both server and browser since
@@ -33,7 +39,7 @@ export async function geocode(
     autocomplete: "true",
     proximity: opts.proximity ? `${opts.proximity.lng},${opts.proximity.lat}` : "ip",
   });
-  const res = await fetch(`https://api.mapbox.com/search/geocode/v6/forward?${params}`, { signal: opts.signal });
+  const res = await fetch(`https://api.mapbox.com/search/geocode/v6/forward?${params}`, { signal: withTimeout(opts.signal) });
   if (!res.ok) throw new Error(`Geocoding failed (${res.status})`);
   const json = (await res.json()) as { features: MapboxFeature[] };
   return json.features.map((f) => ({
@@ -57,13 +63,14 @@ async function photon(query: string, opts: { proximity?: { lat: number; lng: num
     params.set("lat", String(opts.proximity.lat));
     params.set("lon", String(opts.proximity.lng));
   }
-  const res = await fetch(`https://photon.komoot.io/api/?${params}`, { signal: opts.signal });
+  const res = await fetch(`https://photon.komoot.io/api/?${params}`, { signal: withTimeout(opts.signal) });
   if (!res.ok) throw new Error(`Geocoding failed (${res.status})`);
   const json = (await res.json()) as { features: PhotonFeature[] };
   return json.features.map((f, i) => {
     const p = f.properties;
     const street = [p.housenumber, p.street].filter(Boolean).join(" ");
-    const address = [street || (p.name !== p.city ? p.name : ""), p.city, p.state, p.country].filter(Boolean).join(", ");
+    const region = [p.state, p.postcode].filter(Boolean).join(" ");
+    const address = [street || (p.name !== p.city ? p.name : ""), p.city, region, p.country].filter(Boolean).join(", ");
     return {
       id: `${p.osm_type ?? "x"}${p.osm_id ?? i}`,
       name: p.name ?? (street || query),

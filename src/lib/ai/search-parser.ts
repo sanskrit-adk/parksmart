@@ -42,7 +42,19 @@ export interface ParseResult {
   engine: "ai" | "rules";
 }
 
+/** A bare street address ("254 S 43rd st", "1 Market St, SF") with no filters to understand. */
+const FILTER_WORDS = /\b(near|by|close|around|under|below|cheap|cheapest|closest|nearest|covered|garage|lot|street parking|ev|charg|accessib|wheelchair|tonight|today|tomorrow|hours?|hrs?|mins?|minutes|\$)/i;
+export function looksLikeAddress(query: string) {
+  const q = query.trim();
+  return /^\d+[a-z]?\s+\S+/i.test(q) && q.length <= 120 && !FILTER_WORDS.test(q.replace(/^\d+[a-z]?\s+/i, "").replace(/\b(st|street)\b\.?/gi, ""));
+}
+
 export async function parseSearchQuery(query: string, now = new Date()): Promise<ParseResult> {
+  // Fast path: a plain address needs no LLM round-trip, just geocoding.
+  if (looksLikeAddress(query)) {
+    const place = query.trim();
+    return { filters: { ...ruleParse(""), place, place_full_name: place, summary: `Parking near ${place}` }, engine: "rules" };
+  }
   if (getOpenAI()) {
     try {
       const filters = await structured<ParsedQuery>({
@@ -54,6 +66,8 @@ export async function parseSearchQuery(query: string, now = new Date()): Promise
           "Only set a filter when the user expressed it. If the user gives a total budget and a duration, set max_total_price, not max_price_per_hour.",
         user: query.slice(0, 500),
         maxTokens: 400,
+        // The rule parser is a fine fallback, so don't keep the user waiting on a slow model.
+        timeoutMs: 6000,
       });
       return { filters: sanitize(filters), engine: "ai" };
     } catch (err) {
