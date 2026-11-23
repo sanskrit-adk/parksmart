@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AddressSearch } from "@/components/address-search";
+import type { GeocodeResult } from "@/lib/geocode";
 import { AiSearchBar } from "@/components/ai/ai-search-bar";
 import { BottomSheet, type SnapPoint } from "@/components/bottom-sheet";
 import { EventAlertBanner } from "@/components/demo/event-alerts";
@@ -265,6 +266,22 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
       }
     },
     [maxTotal, showResults, newSearch, refreshWhenLoaded],
+  );
+
+  /** A picked place suggestion: jump the map there right away, then search around it. */
+  const searchPlace = useCallback(
+    (p: GeocodeResult) => {
+      const label = p.address || p.name;
+      setQuery(label);
+      setAiInfo({ engine: "rules", summary: `Parking near ${p.name}`, maxTotal: null });
+      autoMoveUntil.current = Date.now() + 2500;
+      setFitPoints([{ lat: p.lat, lng: p.lng }]);
+      const url = new URL(window.location.href);
+      url.searchParams.set("q", label);
+      window.history.replaceState(null, "", url);
+      void runStructured(filters, { lat: p.lat, lng: p.lng, name: p.name }, { keepAi: true });
+    },
+    [filters, runStructured],
   );
 
   /** City-level location from the network when GPS isn't available. */
@@ -559,7 +576,7 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
       {/* Desktop list pane */}
       <aside className="hidden w-[min(460px,42vw)] shrink-0 flex-col border-r bg-background md:flex">
         <div className="space-y-3 border-b p-4">
-          <AiSearchBar defaultValue={query} onSearch={runAi} loading={status === "loading" && !!query} size="md" />
+          <AiSearchBar defaultValue={query} onSearch={runAi} onPlaceSelect={searchPlace} proximity={geo.position ?? mapCenter} loading={status === "loading" && !!query} size="md" />
           <div className="flex gap-2">
             <AddressSearch
               className="flex-1"
@@ -597,6 +614,7 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
           hoveredId={hoveredId}
           highlightIds={highlightIds}
           fitPoints={fitPoints}
+          topInset={typeof window !== "undefined" && window.innerWidth < 768 ? 120 : 0}
           onSelect={selectOnMap}
           onBoundsChange={onBoundsChange}
           bottomInset={typeof window !== "undefined" && window.innerWidth < 768 ? Math.round(window.innerHeight * 0.45) : 0}
@@ -604,7 +622,7 @@ export function FindParking({ initialQuery, favoriteIds }: { initialQuery: strin
 
         {/* Mobile top controls */}
         <div className="absolute inset-x-3 top-3 z-20 space-y-2 md:hidden">
-          <AiSearchBar defaultValue={query} onSearch={runAi} loading={status === "loading" && !!query} size="md" />
+          <AiSearchBar defaultValue={query} onSearch={runAi} onPlaceSelect={searchPlace} proximity={geo.position ?? mapCenter} loading={status === "loading" && !!query} size="md" />
           <div className="flex gap-2">
             <Button variant="outline" size="sm" className="rounded-full shadow-soft" onClick={() => setFiltersOpen(true)}>
               <SlidersHorizontalIcon /> Filters

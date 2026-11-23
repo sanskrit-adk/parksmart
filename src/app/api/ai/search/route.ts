@@ -30,10 +30,12 @@ export const POST = handler(async (req: Request) => {
   const userPos = gps ?? (approx ? { lat: approx.lat, lng: approx.lng } : null);
 
   let place: { name: string; address: string; lat: number; lng: number } | null = null;
+  // Bias geocoding toward the user (or SF); Mapbox's "ip" default would use the server's location.
+  const bias = userPos ?? SF_CENTER;
   if (parsed.place) {
-    const hits: GeocodeResult[] = await geocode(parsed.place_full_name ?? parsed.place, { proximity: userPos ?? undefined, limit: 1 }).catch(() => []);
+    const hits: GeocodeResult[] = await geocode(parsed.place_full_name ?? parsed.place, { proximity: bias, limit: 1 }).catch(() => []);
     if (!hits[0] && parsed.place_full_name && parsed.place_full_name !== parsed.place) {
-      hits.push(...(await geocode(parsed.place, { proximity: userPos ?? undefined, limit: 1 }).catch(() => [])));
+      hits.push(...(await geocode(parsed.place, { proximity: bias, limit: 1 }).catch(() => [])));
     }
     if (!hits[0]) throw new ApiError(404, `We couldn't find "${parsed.place}". Try adding a street or city.`);
     place = { name: hits[0].name, address: hits[0].address, lat: hits[0].lat, lng: hits[0].lng };

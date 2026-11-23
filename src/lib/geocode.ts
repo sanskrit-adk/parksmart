@@ -69,7 +69,8 @@ async function photon(query: string, opts: { proximity?: { lat: number; lng: num
   return json.features.map((f, i) => {
     const p = f.properties;
     const street = [p.housenumber, p.street].filter(Boolean).join(" ");
-    const address = [street || (p.name !== p.city ? p.name : ""), p.city, p.state, p.country].filter(Boolean).join(", ");
+    const region = [p.state, p.postcode].filter(Boolean).join(" ");
+    const address = [street || (p.name !== p.city ? p.name : ""), p.city, region, p.country].filter(Boolean).join(", ");
     return {
       id: `${p.osm_type ?? "x"}${p.osm_id ?? i}`,
       name: p.name ?? (street || query),
